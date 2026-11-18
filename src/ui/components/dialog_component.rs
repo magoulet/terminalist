@@ -17,7 +17,10 @@ use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{layout::Rect, widgets::ScrollbarState, Frame};
 use uuid::Uuid;
 
-use crate::ui::components::dialogs::{label_dialogs, project_dialogs, scroll_behavior, system_dialogs, task_dialogs};
+use crate::ui::components::dialogs::{
+    filter_dialogs, label_dialogs, project_dialogs, scroll_behavior, system_dialogs, task_dialogs,
+};
+use crate::ui::core::project_filter::{self, PickerEntry};
 
 /// Modal dialog component that handles various user interactions.
 ///
@@ -120,6 +123,46 @@ impl DialogComponent {
     /// Get all non-inbox projects for task creation (excludes inbox project)
     pub fn get_task_projects(&self) -> Vec<&project::Model> {
         self.projects.iter().filter(|project| !project.is_inbox_project).collect()
+    }
+
+    /// Rows of the project filter picker for the text typed so far.
+    fn filter_entries(&self) -> Vec<PickerEntry> {
+        project_filter::picker_entries(&self.projects, &self.input_buffer)
+    }
+
+    /// Keys for the project filter picker. Typing narrows the list, the arrows move the
+    /// cursor (`selected_project_index`), Enter applies the row under it.
+    fn handle_filter_key(&mut self, code: KeyCode) -> Action {
+        let count = self.filter_entries().len();
+        match code {
+            KeyCode::Esc => Action::HideDialog,
+            KeyCode::Enter => {
+                let chosen = self
+                    .filter_entries()
+                    .get(self.selected_project_index)
+                    .and_then(|entry| entry.project);
+                self.clear_dialog();
+                Action::SetProjectFilter(chosen)
+            }
+            KeyCode::Up => {
+                self.selected_project_index = self.selected_project_index.saturating_sub(1);
+                Action::None
+            }
+            KeyCode::Down => {
+                if self.selected_project_index + 1 < count {
+                    self.selected_project_index += 1;
+                }
+                Action::None
+            }
+            code => {
+                if self.handle_input_key(code) {
+                    // Jump to the first matching project rather than "All projects".
+                    let matches = self.filter_entries().len();
+                    self.selected_project_index = usize::from(!self.input_buffer.is_empty() && matches > 1);
+                }
+                Action::None
+            }
+        }
     }
 
     /// Trigger a database search based on current input
@@ -651,6 +694,7 @@ impl Component for DialogComponent {
                 code if self.handle_input_key(code) => self.trigger_search(),
                 _ => Action::None,
             },
+            Some(DialogType::ProjectFilter { .. }) => self.handle_filter_key(key.code),
             // Input dialogs: task, project and label creation and editing.
             _ => match key.code {
                 KeyCode::Esc => Action::HideDialog,
@@ -726,6 +770,15 @@ impl Component for DialogComponent {
                     self.selected_project_index = 0;
                 }
 
+                // Open the filter picker on the row of the filter already in place.
+                if let DialogType::ProjectFilter { current } = dialog_type {
+                    self.selected_project_index = self
+                        .filter_entries()
+                        .iter()
+                        .position(|entry| entry.project == current)
+                        .unwrap_or(0);
+                }
+
                 // Trigger initial search for TaskSearch dialog
                 if matches!(dialog_type, DialogType::TaskSearch) {
                     return self.trigger_search();
@@ -775,6 +828,18 @@ impl Component for DialogComponent {
                 }
                 DialogType::TaskSearch => {
                     self.render_task_search_dialog(f, rect);
+                }
+                DialogType::ProjectFilter { current } => {
+                    filter_dialogs::render_project_filter_dialog(
+                        f,
+                        rect,
+                        &self.input_buffer,
+                        self.cursor_position,
+                        &self.filter_entries(),
+                        self.selected_project_index,
+                        current,
+                        &self.theme,
+                    );
                 }
             }
         }

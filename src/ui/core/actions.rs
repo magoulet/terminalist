@@ -32,6 +32,8 @@ pub enum LoadKind {
 pub enum Action {
     // Navigation
     NavigateToSidebar(SidebarSelection),
+    /// Show only one project (and its subprojects) in the date and label views. `None` clears it.
+    SetProjectFilter(Option<Uuid>),
 
     // Task operations
     CompleteTask(Uuid),
@@ -136,4 +138,8 @@ pub enum DialogType {
     Help,
     Logs,
     TaskSearch,
+    /// Pick the project the date and label views are narrowed to.
+    ProjectFilter {
+        current: Option<Uuid>,
+    },
 }

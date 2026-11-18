@@ -10,6 +10,7 @@
 //! - [`component`] - Base component trait and rendering abstractions
 //! - [`event_handler`] - Event processing and keyboard/mouse input handling
 //! - [`operations`] - Argument encoding for background operations
+//! - [`project_filter`] - Narrowing a view to one project and its subprojects
 //! - [`task_manager`] - Background task management and async operation handling
 //!
 //! # Architecture
@@ -29,6 +30,7 @@ pub mod actions;
 pub(crate) mod component;
 pub mod event_handler;
 pub mod operations;
+pub mod project_filter;
 pub mod task_manager;
 
 // Re-export core types for easier access from other modules

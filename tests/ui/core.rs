@@ -9,3 +9,6 @@ mod operations;
 
 #[path = "core/task_manager.rs"]
 mod task_manager;
+
+#[path = "core/project_filter.rs"]
+mod project_filter;

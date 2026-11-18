@@ -1,5 +1,6 @@
 mod common;
 
+pub(crate) mod filter_dialogs;
 pub(crate) mod label_dialogs;
 pub(crate) mod project_dialogs;
 pub(crate) mod scroll_behavior;

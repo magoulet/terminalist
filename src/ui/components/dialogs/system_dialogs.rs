@@ -230,6 +230,8 @@ SYNC & DATA
 -----------
 r           Force sync with Todoist
 /           Search across all tasks
+f           Show only one project (and its subprojects) in the
+            Today, Tomorrow, Upcoming and label views
 G           Open the log dialog
 Ctrl+C      Quit application
 

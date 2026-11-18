@@ -141,6 +141,12 @@ impl AppComponent {
                     Action::None
                 }
             }
+            KeyCode::Char('f') => {
+                info!("Global key: 'f' - opening project filter");
+                Action::ShowDialog(DialogType::ProjectFilter {
+                    current: self.state.project_filter,
+                })
+            }
             KeyCode::Char('/') => {
                 info!("Global key: '/' - opening task search dialog");
                 Action::ShowDialog(DialogType::TaskSearch)

@@ -103,6 +103,16 @@ impl AppComponent {
                 info!("Navigation: Scheduled data fetch for new selection");
                 Action::None
             }
+            Action::SetProjectFilter(filter) => {
+                match filter {
+                    Some(uuid) => info!("Filter: narrowing views to project {}", self.describe_project(uuid)),
+                    None => info!("Filter: cleared"),
+                }
+                // The loaded tasks are kept unfiltered and `handle_event` hands the components
+                // fresh data after every action, so no reload is needed.
+                self.state.project_filter = filter;
+                Action::None
+            }
             // Task operations with background execution
             Action::CreateTask { content, project_uuid } => {
                 match project_uuid {
@@ -240,6 +250,9 @@ impl AppComponent {
                 };
 
                 self.state.update_data(projects, labels, sections, tasks);
+                if self.state.drop_stale_project_filter() {
+                    info!("Filter: filtered project no longer exists, clearing the filter");
+                }
 
                 if kind == LoadKind::Initial {
                     // `default_project` is only resolvable post-load.

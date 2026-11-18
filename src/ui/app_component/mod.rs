@@ -168,8 +168,9 @@ impl AppComponent {
         // Update task list
         self.task_list.update_display_config(self.config.display.clone());
         self.task_list.update_theme(self.config.theme.clone());
+        self.task_list.filter_name = self.state.project_filter_name();
         self.task_list.update_data(
-            self.state.tasks.clone(),
+            self.state.visible_tasks(),
             self.state.sections.clone(),
             self.state.projects.clone(),
             self.state.labels.clone(),

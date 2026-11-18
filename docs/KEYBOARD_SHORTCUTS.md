@@ -32,6 +32,7 @@ This document lists all available keyboard shortcuts and TUI controls.
 
 - **`b`** Toggle sidebar visibility
 - **`/`** Open task search dialog (search across all tasks)
+- **`f`** Filter the Today, Tomorrow, Upcoming and label views to one project and its subprojects. Type to narrow the list, `↑/↓` to move, `Enter` to apply. Pick "All projects" to clear it. The filter stays on as you switch views, the task list title shows it, and project views ignore it.
 - **`r`** Force sync with Todoist
 - **`G`** Open the log dialog
 - **`?`** or **`h`** Toggle help panel
