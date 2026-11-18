@@ -155,6 +155,10 @@ pub trait Backend: Send + Sync {
 
     // CRUD operations for tasks
     async fn create_task(&self, args: CreateTaskArgs) -> Result<BackendTask, BackendError>;
+    /// Create a task from free text, letting the backend parse dates, project, labels and
+    /// priority out of it (Todoist Quick Add). The task lands in the inbox unless the text
+    /// names a project.
+    async fn quick_add_task(&self, text: &str) -> Result<BackendTask, BackendError>;
     async fn update_task(&self, remote_id: &str, args: UpdateTaskArgs) -> Result<BackendTask, BackendError>;
     async fn move_task(&self, remote_id: &str, project_remote_id: &str) -> Result<(), BackendError>;
     async fn delete_task(&self, remote_id: &str) -> Result<(), BackendError>;

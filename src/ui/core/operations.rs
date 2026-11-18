@@ -147,17 +147,18 @@ impl Operation {
                 Ok(()) => done(when.success(), task),
                 Err(e) => failed(ERROR_TASK_DUE_DATE_FAILED, e),
             },
-            Operation::CreateTask { content, project } => {
-                let landed = if project.is_some() {
-                    SUCCESS_TASK_CREATED_PROJECT
-                } else {
-                    SUCCESS_TASK_CREATED_INBOX
-                };
-                match sync.create_task(&content, project).await {
-                    Ok(()) => done(landed, content),
-                    Err(e) => failed(ERROR_TASK_CREATE_FAILED, e),
+            // The text goes through Quick Add, so dates, #project, @label and p1 in it are parsed.
+            Operation::CreateTask { content, project } => match sync.quick_add_task(&content, project).await {
+                Ok(outcome) => {
+                    let landed = if outcome.in_inbox {
+                        SUCCESS_TASK_CREATED_INBOX
+                    } else {
+                        SUCCESS_TASK_CREATED_PROJECT
+                    };
+                    done(landed, outcome.content)
                 }
-            }
+                Err(e) => failed(ERROR_TASK_CREATE_FAILED, e),
+            },
             Operation::EditTask { task, content, move_to } => {
                 if let Err(e) = sync.update_task_content(&task, &content).await {
                     return failed(ERROR_TASK_UPDATE_FAILED, e);

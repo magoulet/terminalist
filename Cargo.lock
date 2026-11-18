@@ -2959,6 +2959,7 @@ dependencies = [
  "dirs",
  "log",
  "ratatui",
+ "reqwest",
  "sea-orm",
  "serde",
  "serde_json",

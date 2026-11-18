@@ -216,7 +216,8 @@ TASK MANAGEMENT
 --------------
 Space       Toggle the task: complete a pending one, restore a completed
             or deleted one
-a           Create new task
+a           Create new task. Dates, #project, @label and p1 in the
+            text are parsed, as in the Todoist app
 e           Edit selected task
 d           Delete task (with confirmation), or restore a deleted one
 p           Cycle task priority

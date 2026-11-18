@@ -6,6 +6,23 @@ use anyhow::Result;
 use sea_orm::{ActiveValue, EntityTrait, IntoActiveModel, TransactionTrait};
 use uuid::Uuid;
 
+/// What a Quick Add produced, for the confirmation message.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct QuickAddOutcome {
+    /// The task title after the backend stripped the parsed date, project and labels.
+    pub content: String,
+    /// Whether the task ended up in the inbox.
+    pub in_inbox: bool,
+}
+
+/// Decides where a Quick Add task still has to move. Quick Add puts a task in the inbox
+/// unless its text names a project, so the dialog's project only applies to an inbox
+/// result. Returns `None` when the task is already where it belongs.
+fn quick_add_move_target<'a>(landed: &str, inbox: Option<&str>, target: Option<&'a str>) -> Option<&'a str> {
+    let target = target?;
+    (Some(landed) == inbox && landed != target).then_some(target)
+}
+
 impl SyncService {
     /// Retrieves all tasks for a specific project from local storage.
     ///
@@ -215,6 +232,56 @@ impl SyncService {
         txn.commit().await?;
 
         Ok(())
+    }
+
+    /// Creates a task from free text through the backend's natural-language parser
+    /// (Todoist Quick Add), so "Call Bob tomorrow 3pm #Work @phone p1" sets the due date,
+    /// project, label and priority.
+    ///
+    /// Quick Add has no project argument. When the text names no project the task lands in
+    /// the inbox, and is then moved to `project_uuid` if one was given. A project named in
+    /// the text always wins over `project_uuid`.
+    ///
+    /// # Errors
+    /// Returns an error if the backend call fails or local storage update fails
+    pub async fn quick_add_task(&self, text: &str, project_uuid: Option<Uuid>) -> Result<QuickAddOutcome> {
+        let backend = self.get_backend().await?;
+        let mut backend_task = backend.quick_add_task(text).await?;
+
+        let (target_remote_id, inbox_remote_id) = {
+            let storage = self.storage.lock().await;
+            let target = match project_uuid {
+                Some(uuid) => Some(ProjectRepository::get_remote_id(&storage.conn, &uuid).await?),
+                None => None,
+            };
+            let inbox = ProjectRepository::get_all(&storage.conn)
+                .await?
+                .into_iter()
+                .find(|project| project.is_inbox_project && project.backend_uuid == self.backend_uuid)
+                .map(|project| project.remote_id);
+            (target, inbox)
+        };
+
+        if let Some(target) = quick_add_move_target(
+            &backend_task.project_remote_id,
+            inbox_remote_id.as_deref(),
+            target_remote_id.as_deref(),
+        ) {
+            backend.move_task(&backend_task.remote_id, target).await?;
+            backend_task.project_remote_id = target.to_string();
+            backend_task.section_remote_id = None;
+        }
+
+        let in_inbox = inbox_remote_id.as_deref() == Some(backend_task.project_remote_id.as_str());
+        let content = backend_task.content.clone();
+
+        // The batch writer also links labels and parents, which a plain insert would not.
+        let storage = self.storage.lock().await;
+        let txn = storage.conn.begin().await?;
+        self.store_tasks_batch(&txn, std::slice::from_ref(&backend_task)).await?;
+        txn.commit().await?;
+
+        Ok(QuickAddOutcome { content, in_inbox })
     }
 
     /// Update task content
@@ -514,5 +581,38 @@ impl SyncService {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::quick_add_move_target;
+
+    #[test]
+    fn inbox_result_moves_to_the_dialog_project() {
+        assert_eq!(
+            quick_add_move_target("inbox", Some("inbox"), Some("work")),
+            Some("work")
+        );
+    }
+
+    #[test]
+    fn project_named_in_the_text_wins() {
+        assert_eq!(quick_add_move_target("home", Some("inbox"), Some("work")), None);
+    }
+
+    #[test]
+    fn no_dialog_project_leaves_the_task_alone() {
+        assert_eq!(quick_add_move_target("inbox", Some("inbox"), None), None);
+    }
+
+    #[test]
+    fn dialog_project_already_reached_needs_no_move() {
+        assert_eq!(quick_add_move_target("inbox", Some("inbox"), Some("inbox")), None);
+    }
+
+    #[test]
+    fn unknown_inbox_never_moves() {
+        assert_eq!(quick_add_move_target("p1", None, Some("work")), None);
     }
 }

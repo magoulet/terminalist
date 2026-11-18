@@ -37,6 +37,8 @@ sea-orm = { version = "2.0", default-features = false, features = [
 ] }
 chrono = { version = "0.4", features = ["serde"] }
 todoist-api = "1.0.0-alpha.4"
+# Same major as todoist-api, which has no Quick Add call. Used only for that endpoint.
+reqwest = { version = "0.13", features = ["json"] }
 toml = "1.0"
 dirs = "7.0"
 log = "0.4"

@@ -13,7 +13,7 @@ This document lists all available keyboard shortcuts and TUI controls.
 ## Task Management
 
 - **`Space`** or **`Enter`** Toggle the selected task. A pending task is completed, a completed or deleted one is restored.
-- **`a`** Create new task
+- **`a`** Create new task. The text goes through Todoist Quick Add, so `Call Bob tomorrow 3pm #Work @phone p1` sets the due date, project, label and priority, and ` // text` at the end sets the description. With no `#project` in the text, the task goes to the project chosen in the dialog.
 - **`e`** Edit selected task
 - **`d`** or **`Delete`** Delete selected task (with confirmation). A deleted task is restored instead.
 - **`p`** Cycle task priority

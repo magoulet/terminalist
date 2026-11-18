@@ -7,6 +7,8 @@ use super::{
 use async_trait::async_trait;
 use todoist_api::{TodoistError, TodoistWrapper};
 
+const QUICK_ADD_URL: &str = "https://api.todoist.com/api/v1/tasks/quick";
+
 fn map_err(e: TodoistError) -> BackendError {
     match e {
         TodoistError::AuthenticationError { .. } | TodoistError::AuthorizationError { .. } => {
@@ -24,16 +26,38 @@ fn map_err(e: TodoistError) -> BackendError {
     }
 }
 
+/// Sorts a failed HTTP status into the backend error categories, the same way
+/// `todoist_api` does for the calls it wraps.
+fn status_error(status: u16, body: &str) -> BackendError {
+    let message = format!("Quick Add failed with HTTP {status}: {body}");
+    match status {
+        401 | 403 => BackendError::Auth(message),
+        404 => BackendError::NotFound(message),
+        429 | 500..=599 => BackendError::Network(message),
+        400 | 422 => BackendError::InvalidData(message),
+        _ => BackendError::Other(message),
+    }
+}
+
 /// Todoist backend implementation.
 pub struct TodoistBackend {
     wrapper: TodoistWrapper,
+    // `todoist_api` has no Quick Add call, so that one endpoint is called directly.
+    http: reqwest::Client,
+    api_token: String,
 }
 
 impl TodoistBackend {
     /// Create a new Todoist backend with the provided API token.
     pub fn new(api_token: String) -> Self {
+        let http = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(10))
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
         Self {
-            wrapper: TodoistWrapper::new(api_token),
+            wrapper: TodoistWrapper::new(api_token.clone()),
+            http,
+            api_token,
         }
     }
 
@@ -229,6 +253,30 @@ impl Backend for TodoistBackend {
         Ok(Self::task_to_backend(&task))
     }
 
+    async fn quick_add_task(&self, text: &str) -> Result<BackendTask, BackendError> {
+        let response = self
+            .http
+            .post(QUICK_ADD_URL)
+            .bearer_auth(&self.api_token)
+            .json(&serde_json::json!({ "text": text }))
+            .send()
+            .await
+            .map_err(|e| BackendError::Network(format!("Quick Add request failed: {e}")))?;
+
+        let status = response.status();
+        let body = response
+            .text()
+            .await
+            .map_err(|e| BackendError::Network(format!("Quick Add response could not be read: {e}")))?;
+        if !status.is_success() {
+            return Err(status_error(status.as_u16(), &body));
+        }
+
+        let task: todoist_api::Task = serde_json::from_str(&body)
+            .map_err(|e| BackendError::InvalidData(format!("Quick Add response could not be parsed: {e}")))?;
+        Ok(Self::task_to_backend(&task))
+    }
+
     async fn update_task(&self, remote_id: &str, args: UpdateTaskArgs) -> Result<BackendTask, BackendError> {
         let todoist_args = todoist_api::UpdateTaskArgs {
             content: args.content,
@@ -296,5 +344,42 @@ impl Backend for TodoistBackend {
 
     async fn delete_label(&self, remote_id: &str) -> Result<(), BackendError> {
         self.wrapper.delete_label(remote_id).await.map_err(map_err)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn quick_add_status_maps_to_backend_error_categories() {
+        assert!(matches!(status_error(401, ""), BackendError::Auth(_)));
+        assert!(matches!(status_error(403, ""), BackendError::Auth(_)));
+        assert!(matches!(status_error(404, ""), BackendError::NotFound(_)));
+        assert!(matches!(status_error(429, ""), BackendError::Network(_)));
+        assert!(matches!(status_error(503, ""), BackendError::Network(_)));
+        assert!(matches!(status_error(400, ""), BackendError::InvalidData(_)));
+        assert!(matches!(status_error(418, ""), BackendError::Other(_)));
+    }
+
+    #[test]
+    fn quick_add_response_parses_into_a_backend_task() {
+        // Trimmed from the Quick Add response in Todoist's OpenAPI spec.
+        let body = r#"{
+            "user_id": "1", "id": "t1", "project_id": "p1", "section_id": null, "parent_id": null,
+            "added_by_uid": "1", "assigned_by_uid": null, "responsible_uid": null,
+            "labels": ["phone"], "deadline": null, "duration": null, "is_collapsed": false,
+            "checked": false, "is_deleted": false, "added_at": "2026-11-18T09:00:00Z",
+            "completed_at": null, "completed_by_uid": null, "updated_at": null,
+            "due": {"date": "2026-11-19", "string": "tomorrow", "lang": "en", "is_recurring": false},
+            "priority": 4, "child_order": 1, "order_key": "a", "content": "Call Bob",
+            "description": "", "note_count": 0, "day_order": -1, "completed_count": 0, "postponed_count": 0
+        }"#;
+        let task: todoist_api::Task = serde_json::from_str(body).expect("Quick Add body parses");
+        let backend = TodoistBackend::task_to_backend(&task);
+        assert_eq!(backend.content, "Call Bob");
+        assert_eq!(backend.project_remote_id, "p1");
+        assert_eq!(backend.due_date.as_deref(), Some("2026-11-19"));
+        assert_eq!(backend.labels, vec!["phone".to_string()]);
     }
 }

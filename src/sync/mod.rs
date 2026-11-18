@@ -17,6 +17,8 @@ pub(crate) mod sections;
 pub mod storage;
 pub(crate) mod tasks;
 
+pub use tasks::QuickAddOutcome;
+
 use anyhow::Result;
 use log::{error, info};
 use std::sync::Arc;

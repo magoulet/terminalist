@@ -38,7 +38,13 @@ pub fn render_task_dialog(
         ])
         .split(inner_area);
 
-    let input_paragraph = common::create_input_paragraph(input_buffer, cursor_position, "Task Content", theme);
+    // New tasks go through Todoist Quick Add, which parses these out of the text.
+    let input_label = if is_editing {
+        "Task Content"
+    } else {
+        "Task (try: tomorrow 3pm #Project @label p1)"
+    };
+    let input_paragraph = common::create_input_paragraph(input_buffer, cursor_position, input_label, theme);
 
     // Project selection field
     let project_name = match selected_project_index {
