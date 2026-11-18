@@ -21,6 +21,7 @@ This document lists all available keyboard shortcuts and TUI controls.
 - **`T`** Set task due date to tomorrow
 - **`w`** Set task due date to next week (Monday)
 - **`W`** Set task due date to next week end (Saturday)
+- **`s`** Reschedule the selected task to any date. Todoist parses the text, so `fri 3pm`, `in 2 weeks`, `dec 24` and `every monday` all work, and `no date` removes the due date. A plain date on a repeating task ends the repeat; the dialog warns you when that applies.
 
 ## Project and Label Management
 

@@ -161,3 +161,37 @@ fn test_task_creation_without_description_sends_none() {
         other => panic!("expected CreateTask, got {other:?}"),
     }
 }
+
+fn reschedule_dialog() -> DialogComponent {
+    let mut dialog = DialogComponent::new();
+    dialog.update(Action::ShowDialog(DialogType::Reschedule {
+        task_uuid: Uuid::nil(),
+        content: "Pay rent".to_string(),
+        is_recurring: false,
+    }));
+    dialog
+}
+
+/// The reschedule dialog sends the typed text, trimmed, for Todoist to parse.
+#[test]
+fn test_reschedule_submits_the_typed_date() {
+    let mut dialog = reschedule_dialog();
+    type_text(&mut dialog, " next fri 3pm ");
+    match press(&mut dialog, KeyCode::Enter) {
+        Action::RescheduleTask { task_uuid, due } => {
+            assert_eq!(task_uuid, Uuid::nil());
+            assert_eq!(due, "next fri 3pm");
+        }
+        other => panic!("expected RescheduleTask, got {other:?}"),
+    }
+    assert!(!dialog.is_visible());
+}
+
+/// Enter on an empty field does nothing and keeps the dialog open.
+#[test]
+fn test_reschedule_ignores_an_empty_date() {
+    let mut dialog = reschedule_dialog();
+    type_text(&mut dialog, "   ");
+    assert!(matches!(press(&mut dialog, KeyCode::Enter), Action::None));
+    assert!(dialog.is_visible());
+}

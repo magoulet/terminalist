@@ -123,6 +123,8 @@ pub struct UpdateTaskArgs {
     pub content: Option<String>,
     pub description: Option<String>,
     pub priority: Option<i32>,
+    /// Free text the backend parses into a due date ("fri 3pm", "every monday", "no date").
+    pub due_string: Option<String>,
     pub due_date: Option<String>,
     pub due_datetime: Option<String>,
     pub duration: Option<String>,

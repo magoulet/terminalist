@@ -141,6 +141,19 @@ impl AppComponent {
                     Action::None
                 }
             }
+            KeyCode::Char('s') => {
+                if let Some(task) = self.task_list.get_selected_task() {
+                    info!("Global key: 's' - rescheduling task '{}'", task.content);
+                    Action::ShowDialog(DialogType::Reschedule {
+                        task_uuid: task.uuid,
+                        content: task.content.clone(),
+                        is_recurring: task.is_recurring,
+                    })
+                } else {
+                    info!("Global key: 's' - no task selected");
+                    Action::ShowDialog(DialogType::Info(UI_NO_TASK_SELECTED_DUE_DATE.to_string()))
+                }
+            }
             KeyCode::Char('/') => {
                 info!("Global key: '/' - opening task search dialog");
                 Action::ShowDialog(DialogType::TaskSearch)

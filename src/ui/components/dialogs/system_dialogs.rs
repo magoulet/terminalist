@@ -225,6 +225,8 @@ t           Set task due date to today
 T           Set task due date to tomorrow
 w           Set task due date to next week (Monday)
 W           Set task due date to next week end (Saturday)
+s           Reschedule to any date: fri 3pm, in 2 weeks, every monday,
+            or no date to remove it
 
 SYNC & DATA
 -----------

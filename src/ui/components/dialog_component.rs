@@ -242,6 +242,19 @@ impl DialogComponent {
                     Action::None
                 }
             }
+            Some(DialogType::Reschedule { task_uuid, .. }) => {
+                let due = self.input_buffer.trim().to_string();
+                if due.is_empty() {
+                    Action::None
+                } else {
+                    let action = Action::RescheduleTask {
+                        task_uuid: *task_uuid,
+                        due,
+                    };
+                    self.clear_dialog();
+                    action
+                }
+            }
             Some(DialogType::ProjectCreation) => {
                 if !self.input_buffer.is_empty() {
                     let parent_uuid = if let Some(parent_index) = self.selected_parent_project_index {
@@ -859,6 +872,19 @@ impl Component for DialogComponent {
                 }
                 DialogType::TaskSearch => {
                     self.render_task_search_dialog(f, rect);
+                }
+                DialogType::Reschedule {
+                    content, is_recurring, ..
+                } => {
+                    task_dialogs::render_reschedule_dialog(
+                        f,
+                        rect,
+                        &self.input_buffer,
+                        self.cursor_position,
+                        &content,
+                        is_recurring,
+                        &self.theme,
+                    );
                 }
             }
         }
