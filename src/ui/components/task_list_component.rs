@@ -38,6 +38,8 @@ use uuid::Uuid;
 /// The component automatically groups tasks based on the current view mode and
 /// provides appropriate headers and visual indicators.
 pub struct TaskListComponent {
+    /// Project the view is filtered to, shown in the title. Set by the app before `update_data`.
+    pub filter_name: Option<String>,
     pub items: Vec<TaskListItemType>,
     pub selected_index: usize,
     pub list_state: ListState,
@@ -61,6 +63,7 @@ impl Default for TaskListComponent {
 impl TaskListComponent {
     pub fn new() -> Self {
         Self {
+            filter_name: None,
             items: Vec::new(),
             tasks: Vec::new(),
             selected_index: 0,
@@ -615,6 +618,9 @@ impl Component for TaskListComponent {
         let tasks_list = if self.items.is_empty() {
             // Show contextual empty state message
             let empty_message = match &self.sidebar_selection {
+                _ if self.filter_name.is_some() => {
+                    "No tasks from this project in this view. Press 'f' to change the project filter."
+                }
                 SidebarSelection::Today => "No tasks due today. Press 'a' to create a task or 'r' to sync.",
                 SidebarSelection::Tomorrow => "No tasks due tomorrow. Press 'a' to create a task or 'r' to sync.",
                 _ if self.projects.is_empty() => "No projects available. Press 'r' to sync or 'A' to create a project.",
@@ -630,7 +636,10 @@ impl Component for TaskListComponent {
             Block::default()
                 .borders(Borders::ALL)
                 .border_type(BorderType::Rounded)
-                .title("Tasks")
+                .title(match &self.filter_name {
+                    Some(name) => format!("Tasks · #{name}"),
+                    None => "Tasks".to_string(),
+                })
                 .title_style(Style::default().fg(self.theme.text))
                 .border_style(Style::default().fg(self.theme.border)),
         );
