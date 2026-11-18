@@ -289,6 +289,7 @@ impl Backend for TodoistBackend {
             content: args.content,
             description: args.description,
             priority: args.priority,
+            due_string: args.due_string,
             due_date: args.due_date,
             due_datetime: args.due_datetime,
             labels: args.labels,

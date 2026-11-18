@@ -285,6 +285,7 @@ impl SyncService {
                 content: None,
                 description: Some(description.to_string()),
                 priority: None,
+                due_string: None,
                 due_date: None,
                 due_datetime: None,
                 duration: None,
@@ -316,6 +317,7 @@ impl SyncService {
             content: Some(content.to_string()),
             description: description.map(str::to_string),
             priority: None,
+            due_string: None,
             due_date: None,
             due_datetime: None,
             duration: None,
@@ -369,6 +371,7 @@ impl SyncService {
             content: None,
             description: None,
             priority: None,
+            due_string: None,
             due_date: due_date.map(std::string::ToString::to_string),
             due_datetime: None,
             duration: None,
@@ -388,6 +391,41 @@ impl SyncService {
         Ok(())
     }
 
+    /// Reschedules a task from free text the backend parses, such as "fri 3pm", "in 2 weeks",
+    /// "every monday" or "no date". The cache takes the due date the backend worked out, so
+    /// the views sort the task correctly before the next sync.
+    ///
+    /// Returns the new due date, or `None` when the text removed it.
+    ///
+    /// # Errors
+    /// Returns an error if the backend call fails, for example on text it cannot parse, or
+    /// if the local storage update fails
+    pub async fn reschedule_task(&self, task_uuid: &Uuid, due: &str) -> Result<Option<String>> {
+        let remote_id = self.get_task_remote_id(task_uuid).await?;
+        let task_args = crate::backend::UpdateTaskArgs {
+            content: None,
+            description: None,
+            priority: None,
+            due_string: Some(due.to_string()),
+            due_date: None,
+            due_datetime: None,
+            duration: None,
+            labels: None,
+        };
+        let updated = self.get_backend().await?.update_task(&remote_id, task_args).await?;
+
+        let storage = self.storage.lock().await;
+        if let Some(task) = TaskRepository::get_by_id(&storage.conn, task_uuid).await? {
+            let mut active_model: task::ActiveModel = task.into_active_model();
+            active_model.due_date = ActiveValue::Set(updated.due_date.clone());
+            active_model.due_datetime = ActiveValue::Set(updated.due_datetime.clone());
+            active_model.is_recurring = ActiveValue::Set(updated.is_recurring);
+            TaskRepository::update(&storage.conn, active_model).await?;
+        }
+
+        Ok(updated.due_date)
+    }
+
     /// Update task priority
     pub async fn update_task_priority(&self, task_uuid: &Uuid, priority: i32) -> Result<()> {
         // Look up the task's remote_id for backend call
@@ -398,6 +436,7 @@ impl SyncService {
             content: None,
             description: None,
             priority: Some(priority),
+            due_string: None,
             due_date: None,
             due_datetime: None,
             duration: None,

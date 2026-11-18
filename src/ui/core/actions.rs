@@ -40,6 +40,11 @@ pub enum Action {
     DeleteTask(Uuid),
     CyclePriority(Uuid),
     SetTaskDue(Uuid, Due),
+    /// Reschedule from free text, parsed by the backend.
+    RescheduleTask {
+        task_uuid: Uuid,
+        due: String,
+    },
     CreateTask {
         content: String,
         project_uuid: Option<Uuid>,
@@ -143,6 +148,13 @@ pub enum DialogType {
     Help,
     Logs,
     TaskSearch,
+    /// Type a new due date for a task.
+    Reschedule {
+        task_uuid: Uuid,
+        content: String,
+        /// The task repeats, and a plain date would replace its repeat pattern.
+        is_recurring: bool,
+    },
     /// Pick the project the date and label views are narrowed to.
     ProjectFilter {
         current: Option<Uuid>,

@@ -172,6 +172,11 @@ impl AppComponent {
                 Action::None
             }
             Action::SetTaskDue(task, due) => self.set_due(task, due),
+            Action::RescheduleTask { task_uuid, due } => {
+                info!("Task: Rescheduling {} to '{}'", self.describe_task(task_uuid), due);
+                self.spawn(Operation::Reschedule { task: task_uuid, due });
+                Action::None
+            }
             Action::EditTask {
                 task_uuid,
                 content,

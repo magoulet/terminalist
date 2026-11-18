@@ -136,3 +136,58 @@ pub fn render_task_dialog(f: &mut Frame, area: Rect, view: &TaskDialogView, them
 
     width
 }
+
+/// The reschedule dialog: one line of date text that Todoist parses.
+pub fn render_reschedule_dialog(
+    f: &mut Frame,
+    area: Rect,
+    input: &str,
+    cursor: usize,
+    task_content: &str,
+    is_recurring: bool,
+    theme: &Theme,
+) {
+    let dialog_area = LayoutManager::centered_rect_lines(65, 11, area);
+    f.render_widget(Clear, dialog_area);
+
+    let main_block = common::create_dialog_block("Reschedule Task", theme.info);
+    let inner_area = main_block.inner(dialog_area);
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .margin(1)
+        .constraints([
+            Constraint::Length(1), // Task being rescheduled
+            Constraint::Length(1), // Repeat warning
+            Constraint::Length(3), // Date input
+            Constraint::Length(1), // Spacer
+            Constraint::Length(1), // Instructions
+        ])
+        .split(inner_area);
+
+    let task_line = Paragraph::new(task_content.to_string()).style(Style::default().fg(theme.text_muted));
+    let input_paragraph = common::create_input_paragraph(
+        input,
+        cursor,
+        "New date (fri 3pm, in 2 weeks, every monday, no date)",
+        theme,
+    );
+    let instructions = [
+        ("Enter", theme.success, " Reschedule"),
+        shortcuts::separator(theme),
+        shortcuts::esc_cancel(theme),
+    ];
+
+    f.render_widget(main_block, dialog_area);
+    f.render_widget(task_line, chunks[0]);
+    if is_recurring {
+        // Todoist replaces the whole due date, repeat pattern included.
+        let warning =
+            Paragraph::new("This task repeats. A plain date ends the repeat, so type \"every ...\" to keep it.")
+                .style(Style::default().fg(theme.warning));
+        f.render_widget(warning, chunks[1]);
+    }
+    f.render_widget(input_paragraph, chunks[2]);
+    f.render_widget(common::create_instructions_paragraph(&instructions, theme), chunks[4]);
+
+    f.set_cursor_position((chunks[2].x + 1 + cursor as u16, chunks[2].y + 1));
+}

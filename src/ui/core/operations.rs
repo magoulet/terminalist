@@ -57,6 +57,11 @@ pub enum Operation {
         task: Uuid,
         when: Due,
     },
+    /// Due date from free text the backend parses ("fri 3pm", "every monday", "no date").
+    Reschedule {
+        task: Uuid,
+        due: String,
+    },
     CreateTask {
         content: String,
         project: Option<Uuid>,
@@ -98,6 +103,7 @@ impl Operation {
             Operation::RestoreTask(task) => format!("Restore task: {task}"),
             Operation::CyclePriority { task, priority } => format!("Cycle priority: {task} -> P{priority}"),
             Operation::SetDue { task, when } => format!("Set task due {when:?}: {task}"),
+            Operation::Reschedule { task, due } => format!("Reschedule task to '{due}': {task}"),
             Operation::CreateTask { project, .. } => match project {
                 Some(project) => format!("Create task: in project {project}"),
                 None => "Create task: in inbox".to_string(),
@@ -150,6 +156,11 @@ impl Operation {
                 Err(e) => failed(ERROR_TASK_DUE_DATE_FAILED, e),
             },
             // The text goes through Quick Add, so dates, #project, @label and p1 in it are parsed.
+            Operation::Reschedule { task, due } => match sync.reschedule_task(&task, &due).await {
+                Ok(Some(date)) => Ok(format!("{SUCCESS_TASK_RESCHEDULED} {date}: {task}")),
+                Ok(None) => done(SUCCESS_TASK_DUE_REMOVED, task),
+                Err(e) => failed(ERROR_TASK_DUE_DATE_FAILED, e),
+            },
             Operation::CreateTask {
                 content,
                 project,
