@@ -13,11 +13,41 @@ use crate::ui::core::{
     actions::{Action, DialogType},
     Component,
 };
-use crossterm::event::{KeyCode, KeyEvent};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{layout::Rect, widgets::ScrollbarState, Frame};
 use uuid::Uuid;
 
-use crate::ui::components::dialogs::{label_dialogs, project_dialogs, scroll_behavior, system_dialogs, task_dialogs};
+use crate::ui::components::dialogs::{
+    label_dialogs, project_dialogs, scroll_behavior, system_dialogs, task_dialogs, text_edit,
+};
+
+/// The field of the task create and edit dialogs that has the keyboard. Tab moves forward,
+/// Shift+Tab back.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TaskField {
+    #[default]
+    Content,
+    Description,
+    Project,
+}
+
+impl TaskField {
+    fn next(self) -> Self {
+        match self {
+            TaskField::Content => TaskField::Description,
+            TaskField::Description => TaskField::Project,
+            TaskField::Project => TaskField::Content,
+        }
+    }
+
+    fn previous(self) -> Self {
+        match self {
+            TaskField::Content => TaskField::Project,
+            TaskField::Description => TaskField::Content,
+            TaskField::Project => TaskField::Description,
+        }
+    }
+}
 
 /// Modal dialog component that handles various user interactions.
 ///
@@ -50,7 +80,13 @@ pub struct DialogComponent {
     pub selected_project_index: usize,
     pub selected_parent_project_index: Option<usize>, // For project creation parent selection
     pub selected_task_project_uuid: Option<Uuid>,     // Selected project in the task dialog (None = Inbox)
-    pub task_project_explicitly_selected: bool,       // Track if user explicitly selected a project via Tab
+    pub task_project_explicitly_selected: bool,       // Track if user explicitly changed the project
+    // Task dialogs: the multi-line description and which field has focus
+    pub description_buffer: String,
+    pub description_cursor: usize,
+    pub task_field: TaskField,
+    /// Text width of the description field at the last draw, for moving up and down a row.
+    pub description_width: usize,
     // Scrolling support for long content dialogs
     pub scroll_offset: usize,
     pub scrollbar_state: ScrollbarState,
@@ -79,7 +115,11 @@ impl DialogComponent {
             selected_project_index: 0,
             selected_parent_project_index: None,
             selected_task_project_uuid: None, // No project selected initially (Inbox)
-            task_project_explicitly_selected: false, // User hasn't used Tab yet
+            task_project_explicitly_selected: false, // User hasn't changed the project yet
+            description_buffer: String::new(),
+            description_cursor: 0,
+            task_field: TaskField::Content,
+            description_width: 40,
             scroll_offset: 0,
             scrollbar_state: ScrollbarState::new(0),
             search_results: Vec::new(),
@@ -166,9 +206,11 @@ impl DialogComponent {
                         log::info!("Creating task in inbox (no project)");
                     }
 
+                    let description = Some(self.description_buffer.trim_end().to_string()).filter(|d| !d.is_empty());
                     let action = Action::CreateTask {
                         content: self.input_buffer.clone(),
                         project_uuid,
+                        description,
                     };
                     self.clear_dialog();
                     action
@@ -179,15 +221,20 @@ impl DialogComponent {
             Some(DialogType::TaskEdit {
                 task_uuid,
                 project_uuid,
+                description,
                 ..
             }) => {
                 if !self.input_buffer.is_empty() {
-                    // Only move when Tab landed on a project other than the task's own
+                    // Only move when the project was changed to one other than the task's own
                     let move_to_project = self.selected_task_project_uuid.filter(|uuid| uuid != project_uuid);
+                    // Only send the description when it changed
+                    let edited = self.description_buffer.trim_end();
+                    let description = (edited != description.trim_end()).then(|| edited.to_string());
                     let action = Action::EditTask {
                         task_uuid: *task_uuid,
                         content: self.input_buffer.clone(),
                         move_to_project,
+                        description,
                     };
                     self.clear_dialog();
                     action
@@ -283,6 +330,9 @@ impl DialogComponent {
         self.selected_parent_project_index = None;
         self.selected_task_project_uuid = None; // Reset to Inbox for task creation
         self.task_project_explicitly_selected = false; // Reset selection flag
+        self.description_buffer.clear();
+        self.description_cursor = 0;
+        self.task_field = TaskField::Content;
         self.scroll_offset = 0;
         self.scrollbar_state = ScrollbarState::new(0);
         self.search_results.clear();
@@ -312,24 +362,26 @@ impl DialogComponent {
         scroll_behavior::scroll_to_bottom(&mut self.scroll_offset, &mut self.scrollbar_state);
     }
 
-    fn render_task_creation_dialog(&self, f: &mut Frame, area: Rect) {
-        let task_projects = self.get_task_projects();
-        task_dialogs::render_task_dialog(
-            f,
-            area,
-            &self.input_buffer,
-            self.cursor_position,
-            &task_projects,
-            self.selected_task_project_index(),
-            false, // is_editing
-            &self.theme,
-        );
+    fn render_task_creation_dialog(&mut self, f: &mut Frame, area: Rect) {
+        let project_name = self
+            .selected_task_project_uuid
+            .and_then(|uuid| self.get_task_projects().into_iter().find(|p| p.uuid == uuid))
+            .map_or_else(|| "None (Inbox)".to_string(), |p| p.name.clone());
+        self.render_task_dialog(f, area, project_name, false);
     }
 
-    /// Index of the selected task project within `get_task_projects()` (None = Inbox).
-    fn selected_task_project_index(&self) -> Option<usize> {
-        self.selected_task_project_uuid
-            .and_then(|uuid| self.get_task_projects().iter().position(|p| p.uuid == uuid))
+    /// Draws either task dialog and keeps the description width for moving up and down rows.
+    fn render_task_dialog(&mut self, f: &mut Frame, area: Rect, project_name: String, is_editing: bool) {
+        let view = task_dialogs::TaskDialogView {
+            content: &self.input_buffer,
+            content_cursor: self.cursor_position,
+            description: &self.description_buffer,
+            description_cursor: self.description_cursor,
+            focus: self.task_field,
+            project_name,
+            is_editing,
+        };
+        self.description_width = task_dialogs::render_task_dialog(f, area, &view, &self.theme);
     }
 
     fn render_project_creation_dialog(&self, f: &mut Frame, area: Rect) {
@@ -371,23 +423,13 @@ impl DialogComponent {
         );
     }
 
-    fn render_task_edit_dialog(&self, f: &mut Frame, area: Rect) {
+    fn render_task_edit_dialog(&mut self, f: &mut Frame, area: Rect) {
         // Editing cycles through every project, inbox included
-        let projects: Vec<&project::Model> = self.projects.iter().collect();
-        let selected = self
+        let project_name = self
             .selected_task_project_uuid
-            .and_then(|uuid| projects.iter().position(|p| p.uuid == uuid));
-
-        task_dialogs::render_task_dialog(
-            f,
-            area,
-            &self.input_buffer,
-            self.cursor_position,
-            &projects,
-            selected,
-            true, // is_editing
-            &self.theme,
-        );
+            .and_then(|uuid| self.projects.iter().find(|p| p.uuid == uuid))
+            .map_or_else(|| "None (Inbox)".to_string(), |p| p.name.clone());
+        self.render_task_dialog(f, area, project_name, true);
     }
 
     fn render_delete_confirmation_dialog(&self, f: &mut Frame, area: Rect, item_type: &str) {
@@ -522,18 +564,19 @@ impl DialogComponent {
     }
 }
 
-/// Advance a cursor over `len` items, through a virtual "none" slot after the last one.
-fn cycle(current: Option<usize>, len: usize) -> Option<usize> {
-    let next = current.map_or(0, |index| (index + 1) % (len + 1));
+/// Move a cursor over `len` items one step forward or back, through a virtual "none" slot
+/// after the last one.
+fn step(current: Option<usize>, len: usize, forward: bool) -> Option<usize> {
+    let slot = current.unwrap_or(len);
+    let next = if forward {
+        (slot + 1) % (len + 1)
+    } else {
+        (slot + len) % (len + 1)
+    };
     (next < len).then_some(next)
 }
 
 impl DialogComponent {
-    /// Byte offset of the cursor, which counts characters, in `input_buffer`.
-    fn cursor_byte_pos(&self) -> usize {
-        self.input_buffer.chars().take(self.cursor_position).map(char::len_utf8).sum()
-    }
-
     /// The scroll keys shared by the info, error, help and logs dialogs. Returns whether the
     /// key was one of them.
     fn handle_scroll_key(&mut self, key: KeyCode) -> bool {
@@ -552,46 +595,74 @@ impl DialogComponent {
     /// The text-editing keys shared by every input dialog. Returns whether the text changed,
     /// which is what tells the search dialog to run a new query.
     fn handle_input_key(&mut self, key: KeyCode) -> bool {
-        match key {
-            KeyCode::Char(c) => {
-                let at = self.cursor_byte_pos();
-                self.input_buffer.insert(at, c);
-                self.cursor_position += 1;
-                return true;
-            }
-            KeyCode::Backspace if self.cursor_position > 0 => {
-                let at = self.cursor_byte_pos();
-                let previous = self
-                    .input_buffer
-                    .chars()
-                    .nth(self.cursor_position - 1)
-                    .map_or(1, char::len_utf8);
-                self.input_buffer.remove(at - previous);
-                self.cursor_position -= 1;
-                return true;
-            }
-            KeyCode::Delete if self.cursor_position < self.input_buffer.chars().count() => {
-                let at = self.cursor_byte_pos();
-                self.input_buffer.remove(at);
-                return true;
-            }
-            KeyCode::Left if self.cursor_position > 0 => self.cursor_position -= 1,
-            KeyCode::Right if self.cursor_position < self.input_buffer.chars().count() => self.cursor_position += 1,
-            _ => {}
-        }
-        false
+        text_edit::edit(&mut self.input_buffer, &mut self.cursor_position, key)
     }
 
-    /// `Tab` cycles the project selector of whichever dialog is open.
-    fn cycle_project_selection(&mut self) {
+    /// Keys for the task create and edit dialogs. Tab and Shift+Tab move between the title,
+    /// description and project fields. Enter saves from any field. Alt+Enter starts a new
+    /// line in the description, since most terminals send Shift+Enter as a plain Enter.
+    fn handle_task_dialog_key(&mut self, key: KeyEvent) -> Action {
+        match key.code {
+            KeyCode::Esc => return Action::HideDialog,
+            KeyCode::Enter if key.modifiers.contains(KeyModifiers::ALT) => {
+                if self.task_field == TaskField::Description {
+                    text_edit::insert_newline(&mut self.description_buffer, &mut self.description_cursor);
+                }
+                return Action::None;
+            }
+            KeyCode::Enter => return self.handle_submit(),
+            KeyCode::Tab => {
+                self.task_field = self.task_field.next();
+                return Action::None;
+            }
+            KeyCode::BackTab => {
+                self.task_field = self.task_field.previous();
+                return Action::None;
+            }
+            _ => {}
+        }
+        match self.task_field {
+            TaskField::Content => {
+                self.handle_input_key(key.code);
+            }
+            TaskField::Description => match key.code {
+                KeyCode::Up | KeyCode::Down => {
+                    let width = self.description_width;
+                    text_edit::move_vertical(
+                        &self.description_buffer,
+                        &mut self.description_cursor,
+                        width,
+                        key.code == KeyCode::Down,
+                    );
+                }
+                code => {
+                    text_edit::edit(&mut self.description_buffer, &mut self.description_cursor, code);
+                }
+            },
+            TaskField::Project => match key.code {
+                KeyCode::Right | KeyCode::Down | KeyCode::Char(' ') => self.cycle_project_selection(true),
+                KeyCode::Left | KeyCode::Up => self.cycle_project_selection(false),
+                _ => {}
+            },
+        }
+        Action::None
+    }
+
+    /// Steps the project selector of whichever dialog is open, forward or back, wrapping.
+    fn cycle_project_selection(&mut self, forward: bool) {
         match self.dialog_type {
             // Editing: every project is a valid destination, inbox included, and the task
             // always sits in one of them.
             Some(DialogType::TaskEdit { .. }) if !self.projects.is_empty() => {
+                let len = self.projects.len();
                 let current = self
                     .selected_task_project_uuid
                     .and_then(|uuid| self.projects.iter().position(|project| project.uuid == uuid));
-                let next = current.map_or(0, |index| (index + 1) % self.projects.len());
+                let next = match current {
+                    Some(index) if forward => (index + 1) % len,
+                    Some(index) => (index + len - 1) % len,
+                    None => 0,
+                };
                 self.selected_task_project_uuid = Some(self.projects[next].uuid);
             }
             // Creating: the inbox is the "none" slot at the end of the cycle.
@@ -601,11 +672,14 @@ impl DialogComponent {
                 let current = self
                     .selected_task_project_uuid
                     .and_then(|uuid| uuids.iter().position(|candidate| *candidate == uuid));
-                self.selected_task_project_uuid = cycle(current, uuids.len()).map(|next| uuids[next]);
+                self.selected_task_project_uuid = step(current, uuids.len(), forward).map(|next| uuids[next]);
             }
             Some(DialogType::ProjectCreation) => {
-                self.selected_parent_project_index =
-                    cycle(self.selected_parent_project_index, self.get_root_projects().len());
+                self.selected_parent_project_index = step(
+                    self.selected_parent_project_index,
+                    self.get_root_projects().len(),
+                    forward,
+                );
             }
             _ => {}
         }
@@ -651,12 +725,13 @@ impl Component for DialogComponent {
                 code if self.handle_input_key(code) => self.trigger_search(),
                 _ => Action::None,
             },
+            Some(DialogType::TaskCreation { .. } | DialogType::TaskEdit { .. }) => self.handle_task_dialog_key(key),
             // Input dialogs: task, project and label creation and editing.
             _ => match key.code {
                 KeyCode::Esc => Action::HideDialog,
                 KeyCode::Enter => self.handle_submit(),
                 KeyCode::Tab => {
-                    self.cycle_project_selection();
+                    self.cycle_project_selection(true);
                     Action::None
                 }
                 code => {
@@ -676,10 +751,16 @@ impl Component for DialogComponent {
                 // Pre-populate input for edit dialogs
                 match &dialog_type {
                     DialogType::TaskEdit {
-                        content, project_uuid, ..
+                        content,
+                        description,
+                        project_uuid,
+                        ..
                     } => {
                         self.input_buffer = content.clone();
                         self.cursor_position = content.chars().count();
+                        self.description_buffer = description.clone();
+                        self.description_cursor = description.chars().count();
+                        self.task_field = TaskField::Content;
                         self.selected_task_project_uuid = Some(*project_uuid);
                     }
                     DialogType::ProjectEdit { name, .. } => {
@@ -693,6 +774,9 @@ impl Component for DialogComponent {
                     DialogType::TaskCreation { default_project_uuid } => {
                         self.input_buffer.clear();
                         self.cursor_position = 0;
+                        self.description_buffer.clear();
+                        self.description_cursor = 0;
+                        self.task_field = TaskField::Content;
                         // Preselect the default project when one is provided
                         if let Some(project_uuid) = default_project_uuid {
                             let task_projects = self.get_task_projects();

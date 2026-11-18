@@ -41,12 +41,16 @@ pub enum Action {
     CreateTask {
         content: String,
         project_uuid: Option<Uuid>,
+        /// `None` when the description field was left empty.
+        description: Option<String>,
     },
     EditTask {
         task_uuid: Uuid,
         content: String,
         /// Set when the edit also moves the task to another project.
         move_to_project: Option<Uuid>,
+        /// Set only when the description changed. `Some("")` clears it.
+        description: Option<String>,
     },
     RestoreTask(Uuid),
 
@@ -115,6 +119,7 @@ pub enum DialogType {
     TaskEdit {
         task_uuid: Uuid,
         content: String,
+        description: String,
         project_uuid: Uuid,
     },
     ProjectCreation,

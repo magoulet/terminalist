@@ -242,9 +242,16 @@ impl SyncService {
     /// the inbox, and is then moved to `project_uuid` if one was given. A project named in
     /// the text always wins over `project_uuid`.
     ///
+    /// A `description` replaces any ` // description` Quick Add parsed out of the text.
+    ///
     /// # Errors
     /// Returns an error if the backend call fails or local storage update fails
-    pub async fn quick_add_task(&self, text: &str, project_uuid: Option<Uuid>) -> Result<QuickAddOutcome> {
+    pub async fn quick_add_task(
+        &self,
+        text: &str,
+        project_uuid: Option<Uuid>,
+        description: Option<&str>,
+    ) -> Result<QuickAddOutcome> {
         let backend = self.get_backend().await?;
         let mut backend_task = backend.quick_add_task(text).await?;
 
@@ -272,6 +279,21 @@ impl SyncService {
             backend_task.section_remote_id = None;
         }
 
+        // Quick Add only takes a one-line description, so a typed one is set separately.
+        if let Some(description) = description {
+            let args = crate::backend::UpdateTaskArgs {
+                content: None,
+                description: Some(description.to_string()),
+                priority: None,
+                due_date: None,
+                due_datetime: None,
+                duration: None,
+                labels: None,
+            };
+            backend.update_task(&backend_task.remote_id, args).await?;
+            backend_task.description = Some(description.to_string());
+        }
+
         let in_inbox = inbox_remote_id.as_deref() == Some(backend_task.project_remote_id.as_str());
         let content = backend_task.content.clone();
 
@@ -284,15 +306,15 @@ impl SyncService {
         Ok(QuickAddOutcome { content, in_inbox })
     }
 
-    /// Update task content
-    pub async fn update_task_content(&self, task_uuid: &Uuid, content: &str) -> Result<()> {
+    /// Update task content, and the description when one is given. `Some("")` clears it.
+    pub async fn update_task_content(&self, task_uuid: &Uuid, content: &str, description: Option<&str>) -> Result<()> {
         // Look up the task's remote_id for backend call
         let remote_id = self.get_task_remote_id(task_uuid).await?;
 
         // Update task via backend using the UpdateTaskArgs structure
         let task_args = crate::backend::UpdateTaskArgs {
             content: Some(content.to_string()),
-            description: None,
+            description: description.map(str::to_string),
             priority: None,
             due_date: None,
             due_datetime: None,
@@ -307,6 +329,9 @@ impl SyncService {
         if let Some(task) = TaskRepository::get_by_id(&storage.conn, task_uuid).await? {
             let mut active_model: task::ActiveModel = task.into_active_model();
             active_model.content = ActiveValue::Set(content.to_string());
+            if let Some(description) = description {
+                active_model.description = ActiveValue::Set(Some(description.to_string()));
+            }
             TaskRepository::update(&storage.conn, active_model).await?;
         }
 
