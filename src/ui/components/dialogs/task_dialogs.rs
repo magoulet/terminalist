@@ -1,88 +1,138 @@
 use super::common::{self, shortcuts};
-use crate::entities::project;
+use super::text_edit;
 use crate::theme::Theme;
+use crate::ui::components::dialog_component::TaskField;
 use crate::ui::layout::LayoutManager;
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
-    widgets::Clear,
+    style::Style,
+    text::Line,
+    widgets::{Block, BorderType, Borders, Clear, Paragraph},
     Frame,
 };
 
-#[allow(clippy::too_many_arguments)]
-pub fn render_task_dialog(
-    f: &mut Frame,
-    area: Rect,
-    input_buffer: &str,
-    cursor_position: usize,
-    task_projects: &[&project::Model],
-    selected_project_index: Option<usize>,
-    is_editing: bool,
-    theme: &Theme,
-) {
-    let title = if is_editing { "Edit Task" } else { "New Task" };
-    let dialog_area = LayoutManager::centered_rect_lines(65, 12, area);
+/// Rows of description text visible at once. Longer descriptions scroll with the cursor.
+const DESCRIPTION_ROWS: u16 = 6;
+
+/// What the task create and edit dialogs show.
+pub struct TaskDialogView<'a> {
+    pub content: &'a str,
+    pub content_cursor: usize,
+    pub description: &'a str,
+    pub description_cursor: usize,
+    pub focus: TaskField,
+    pub project_name: String,
+    pub is_editing: bool,
+}
+
+/// A field's frame, brighter while it has focus.
+fn field_block<'a>(title: &str, focused: bool, theme: &Theme) -> Block<'a> {
+    let border = if focused { theme.info } else { theme.border_dim };
+    Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .title(format!(" {title} "))
+        .title_style(Style::default().fg(theme.text))
+        .border_style(Style::default().fg(border))
+}
+
+/// Draws the task dialog and returns the description field's text width, which the dialog
+/// needs to move the cursor up and down a wrapped row.
+pub fn render_task_dialog(f: &mut Frame, area: Rect, view: &TaskDialogView, theme: &Theme) -> usize {
+    let title = if view.is_editing { "Edit Task" } else { "New Task" };
+    let dialog_area = LayoutManager::centered_rect_lines(65, 21, area);
     f.render_widget(Clear, dialog_area);
 
     let main_block = common::create_dialog_block(title, theme.info);
-
-    // Create layout for content
     let inner_area = main_block.inner(dialog_area);
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .margin(1)
         .constraints([
-            Constraint::Length(4), // Task content input field (borders + content)
-            Constraint::Length(4), // Project selection field (borders + content)
-            Constraint::Length(1), // Spacer
-            Constraint::Length(1), // Instructions
+            Constraint::Length(3),                    // Title field
+            Constraint::Length(DESCRIPTION_ROWS + 2), // Description field
+            Constraint::Length(3),                    // Project field
+            Constraint::Length(1),                    // Spacer
+            Constraint::Length(1),                    // Instructions
+            Constraint::Length(1),                    // More instructions
         ])
         .split(inner_area);
 
     // New tasks go through Todoist Quick Add, which parses these out of the text.
-    let input_label = if is_editing {
+    let content_label = if view.is_editing {
         "Task Content"
     } else {
         "Task (try: tomorrow 3pm #Project @label p1)"
     };
-    let input_paragraph = common::create_input_paragraph(input_buffer, cursor_position, input_label, theme);
+    let content = Paragraph::new(view.content)
+        .block(field_block(content_label, view.focus == TaskField::Content, theme))
+        .style(Style::default().fg(theme.text));
 
-    // Project selection field
-    let project_name = match selected_project_index {
-        None => "None (Inbox)".to_string(),
-        Some(index) => {
-            if index < task_projects.len() {
-                task_projects[index].name.clone()
-            } else {
-                "None (Inbox)".to_string()
-            }
-        }
-    };
+    // The description wraps by hand so the cursor position is known, and scrolls so the
+    // cursor row stays in view.
+    let width = usize::from(chunks[1].width.saturating_sub(2)).max(1);
+    let rows = text_edit::wrap(view.description, width);
+    let (cursor_row, cursor_column) = text_edit::cursor_cell(&rows, view.description_cursor);
+    let visible = usize::from(DESCRIPTION_ROWS);
+    let scroll = cursor_row.saturating_sub(visible - 1);
+    let chars: Vec<char> = view.description.chars().collect();
+    let lines: Vec<Line> = rows
+        .iter()
+        .skip(scroll)
+        .take(visible)
+        .map(|row| Line::from(chars[row.start..row.start + row.len].iter().collect::<String>()))
+        .collect();
+    let description = Paragraph::new(lines)
+        .block(field_block("Description", view.focus == TaskField::Description, theme))
+        .style(Style::default().fg(theme.text));
 
-    let project_paragraph = common::create_selection_paragraph(project_name, "Project", theme);
-
-    // Instructions based on mode
-    let action = if is_editing {
-        ("Enter", theme.success, " Save Task")
+    let project_focused = view.focus == TaskField::Project;
+    let project_text = if project_focused {
+        format!("◀ {} ▶", view.project_name)
     } else {
-        ("Enter", theme.success, " Create Task")
+        view.project_name.clone()
     };
+    let project = Paragraph::new(project_text)
+        .block(field_block("Project", project_focused, theme))
+        .style(Style::default().fg(theme.text));
 
+    let save = if view.is_editing { " Save Task" } else { " Create Task" };
     let instructions = [
-        action,
+        ("Enter", theme.success, save),
         shortcuts::separator(theme),
-        shortcuts::tab_select(theme),
-        (" Project", theme.border_dim, ""),
+        ("Tab", theme.info, " Next field"),
         shortcuts::separator(theme),
         shortcuts::esc_cancel(theme),
     ];
-    let instructions_paragraph = common::create_instructions_paragraph(&instructions, theme);
+    let more_instructions = [
+        ("Alt+Enter", theme.info, " New line in description"),
+        shortcuts::separator(theme),
+        ("←/→", theme.info, " Change project"),
+    ];
 
-    // Render all components
     f.render_widget(main_block, dialog_area);
-    f.render_widget(input_paragraph, chunks[0]);
-    f.render_widget(project_paragraph, chunks[1]);
-    f.render_widget(instructions_paragraph, chunks[3]);
+    f.render_widget(content, chunks[0]);
+    f.render_widget(description, chunks[1]);
+    f.render_widget(project, chunks[2]);
+    f.render_widget(common::create_instructions_paragraph(&instructions, theme), chunks[4]);
+    f.render_widget(
+        common::create_instructions_paragraph(&more_instructions, theme),
+        chunks[5],
+    );
 
-    // Set terminal cursor position
-    f.set_cursor_position((chunks[0].x + 1 + cursor_position as u16, chunks[0].y + 1));
+    // Only the text fields show a cursor.
+    match view.focus {
+        TaskField::Content => {
+            f.set_cursor_position((chunks[0].x + 1 + view.content_cursor as u16, chunks[0].y + 1));
+        }
+        TaskField::Description => {
+            f.set_cursor_position((
+                chunks[1].x + 1 + cursor_column.min(width - 1) as u16,
+                chunks[1].y + 1 + (cursor_row - scroll) as u16,
+            ));
+        }
+        TaskField::Project => {}
+    }
+
+    width
 }

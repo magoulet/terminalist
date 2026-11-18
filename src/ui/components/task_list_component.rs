@@ -577,6 +577,7 @@ impl Component for TaskListComponent {
                     Action::ShowDialog(DialogType::TaskEdit {
                         task_uuid: task.uuid,
                         content: task.content.clone(),
+                        description: task.description.clone().unwrap_or_default(),
                         project_uuid: task.project_uuid,
                     })
                 } else {

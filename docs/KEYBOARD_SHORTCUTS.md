@@ -45,9 +45,11 @@ This document lists all available keyboard shortcuts and TUI controls.
 
 - **`Enter`** Confirm. In the search dialog, close it.
 - **`Esc`** Cancel and close
-- **`Tab`** Cycle the project of a task in the task create and edit dialogs, or the parent project in the project creation dialog
+- **`Tab`** / **`Shift+Tab`** In the task create and edit dialogs, move between the title, description and project fields. In the project creation dialog, cycle the parent project.
+- **`Alt+Enter`** Start a new line in a task description. On macOS this needs the terminal to send Option as Meta (Terminal: Settings, Profiles, Keyboard, "Use Option as Meta key". iTerm2: Profiles, Keys, Left Option key "Esc+").
+- **`Left/Right`** In the task project field, change the project
 - **Type** In the search dialog, filter all tasks by content as you type
-- **`Left/Right`** Move the cursor in the input field
+- **`Left/Right`** Move the cursor in the input field. `Up/Down` move between lines in a task description, and `Home/End` jump to the start and end of the line.
 - **`Backspace/Delete`** Edit the input field
 
 ## Help Panel Scrolling

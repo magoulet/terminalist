@@ -60,11 +60,13 @@ pub enum Operation {
     CreateTask {
         content: String,
         project: Option<Uuid>,
+        description: Option<String>,
     },
     EditTask {
         task: Uuid,
         content: String,
         move_to: Option<Uuid>,
+        description: Option<String>,
     },
     CreateProject {
         name: String,
@@ -148,7 +150,11 @@ impl Operation {
                 Err(e) => failed(ERROR_TASK_DUE_DATE_FAILED, e),
             },
             // The text goes through Quick Add, so dates, #project, @label and p1 in it are parsed.
-            Operation::CreateTask { content, project } => match sync.quick_add_task(&content, project).await {
+            Operation::CreateTask {
+                content,
+                project,
+                description,
+            } => match sync.quick_add_task(&content, project, description.as_deref()).await {
                 Ok(outcome) => {
                     let landed = if outcome.in_inbox {
                         SUCCESS_TASK_CREATED_INBOX
@@ -159,8 +165,13 @@ impl Operation {
                 }
                 Err(e) => failed(ERROR_TASK_CREATE_FAILED, e),
             },
-            Operation::EditTask { task, content, move_to } => {
-                if let Err(e) = sync.update_task_content(&task, &content).await {
+            Operation::EditTask {
+                task,
+                content,
+                move_to,
+                description,
+            } => {
+                if let Err(e) = sync.update_task_content(&task, &content, description.as_deref()).await {
                     return failed(ERROR_TASK_UPDATE_FAILED, e);
                 }
                 if let Some(project) = move_to {

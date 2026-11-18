@@ -114,7 +114,11 @@ impl AppComponent {
                 Action::None
             }
             // Task operations with background execution
-            Action::CreateTask { content, project_uuid } => {
+            Action::CreateTask {
+                content,
+                project_uuid,
+                description,
+            } => {
                 match project_uuid {
                     Some(uuid) => info!("Task: Creating '{}' in project {}", content, uuid),
                     None => info!("Task: Creating '{}' in inbox", content),
@@ -122,6 +126,7 @@ impl AppComponent {
                 self.spawn(Operation::CreateTask {
                     content,
                     project: project_uuid,
+                    description,
                 });
                 Action::None
             }
@@ -171,12 +176,14 @@ impl AppComponent {
                 task_uuid,
                 content,
                 move_to_project,
+                description,
             } => {
                 info!("Task: Editing {} to '{}'", self.describe_task(task_uuid), content);
                 self.spawn(Operation::EditTask {
                     task: task_uuid,
                     content,
                     move_to: move_to_project,
+                    description,
                 });
                 Action::None
             }
