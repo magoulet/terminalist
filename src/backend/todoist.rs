@@ -75,6 +75,13 @@ impl TodoistBackend {
 
     // Helper: Transform Todoist API task → Backend task
     fn task_to_backend(api_task: &todoist_api::Task) -> BackendTask {
+        let (due_date, due_datetime) = match &api_task.due {
+            Some(due) => {
+                let (day, time) = crate::utils::datetime::split_todoist_due(&due.date, due.datetime.as_deref());
+                (Some(day), time)
+            }
+            None => (None, None),
+        };
         BackendTask {
             remote_id: api_task.id.clone(),
             content: api_task.content.clone(),
@@ -84,8 +91,8 @@ impl TodoistBackend {
             parent_remote_id: api_task.parent_id.clone(),
             priority: api_task.priority,
             order_index: 0, // order field removed from API v1
-            due_date: api_task.due.as_ref().map(|d| d.date.clone()),
-            due_datetime: api_task.due.as_ref().and_then(|d| d.datetime.clone()),
+            due_date,
+            due_datetime,
             is_recurring: api_task.due.as_ref().map(|d| d.is_recurring).unwrap_or(false),
             deadline: None, // Todoist doesn't have deadline
             duration: api_task.duration.as_ref().map(|d| format!("{} {}", d.amount, d.unit)),
@@ -351,6 +358,18 @@ impl Backend for TodoistBackend {
 mod tests {
     use super::*;
 
+    /// Trimmed from the Quick Add response in Todoist's OpenAPI spec.
+    const QUICK_ADD_BODY: &str = r#"{
+            "user_id": "1", "id": "t1", "project_id": "p1", "section_id": null, "parent_id": null,
+            "added_by_uid": "1", "assigned_by_uid": null, "responsible_uid": null,
+            "labels": ["phone"], "deadline": null, "duration": null, "is_collapsed": false,
+            "checked": false, "is_deleted": false, "added_at": "2026-11-18T09:00:00Z",
+            "completed_at": null, "completed_by_uid": null, "updated_at": null,
+            "due": {"date": "2026-11-19", "string": "tomorrow", "lang": "en", "is_recurring": false},
+            "priority": 4, "child_order": 1, "order_key": "a", "content": "Call Bob",
+            "description": "", "note_count": 0, "day_order": -1, "completed_count": 0, "postponed_count": 0
+        }"#;
+
     #[test]
     fn quick_add_status_maps_to_backend_error_categories() {
         assert!(matches!(status_error(401, ""), BackendError::Auth(_)));
@@ -364,22 +383,28 @@ mod tests {
 
     #[test]
     fn quick_add_response_parses_into_a_backend_task() {
-        // Trimmed from the Quick Add response in Todoist's OpenAPI spec.
-        let body = r#"{
-            "user_id": "1", "id": "t1", "project_id": "p1", "section_id": null, "parent_id": null,
-            "added_by_uid": "1", "assigned_by_uid": null, "responsible_uid": null,
-            "labels": ["phone"], "deadline": null, "duration": null, "is_collapsed": false,
-            "checked": false, "is_deleted": false, "added_at": "2026-11-18T09:00:00Z",
-            "completed_at": null, "completed_by_uid": null, "updated_at": null,
-            "due": {"date": "2026-11-19", "string": "tomorrow", "lang": "en", "is_recurring": false},
-            "priority": 4, "child_order": 1, "order_key": "a", "content": "Call Bob",
-            "description": "", "note_count": 0, "day_order": -1, "completed_count": 0, "postponed_count": 0
-        }"#;
+        let body = QUICK_ADD_BODY;
         let task: todoist_api::Task = serde_json::from_str(body).expect("Quick Add body parses");
         let backend = TodoistBackend::task_to_backend(&task);
         assert_eq!(backend.content, "Call Bob");
         assert_eq!(backend.project_remote_id, "p1");
         assert_eq!(backend.due_date.as_deref(), Some("2026-11-19"));
         assert_eq!(backend.labels, vec!["phone".to_string()]);
+    }
+
+    #[test]
+    fn timed_due_date_is_split_into_day_and_time() {
+        let mut task: todoist_api::Task = serde_json::from_str(QUICK_ADD_BODY).expect("body parses");
+        task.due = Some(todoist_api::Due {
+            string: "fri 1pm".to_string(),
+            date: "2026-11-20T13:00:00".to_string(),
+            is_recurring: false,
+            datetime: None,
+            timezone: None,
+            lang: Some("en".to_string()),
+        });
+        let backend = TodoistBackend::task_to_backend(&task);
+        assert_eq!(backend.due_date.as_deref(), Some("2026-11-20"));
+        assert_eq!(backend.due_datetime.as_deref(), Some("2026-11-20T13:00:00"));
     }
 }
