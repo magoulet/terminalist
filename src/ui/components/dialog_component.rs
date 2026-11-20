@@ -834,7 +834,7 @@ impl Component for DialogComponent {
                 }
             },
             Some(DialogType::Logs) => match key.code {
-                KeyCode::Esc | KeyCode::Char('G') | KeyCode::Char('q') => Action::HideDialog,
+                KeyCode::Esc | KeyCode::Char('!') | KeyCode::Char('q') => Action::HideDialog,
                 code => {
                     self.handle_scroll_key(code);
                     Action::None

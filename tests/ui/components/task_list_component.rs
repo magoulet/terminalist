@@ -171,3 +171,53 @@ fn test_subtask_without_its_parent_shows_in_today_with_the_parent_name() {
     assert_eq!(item.depth, 0);
     assert_eq!(item.parent_name.as_deref(), Some("Trip to Japan"));
 }
+
+fn press(component: &mut TaskListComponent, c: char) {
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use terminalist::ui::core::Component;
+    let modifiers = if c.is_uppercase() {
+        KeyModifiers::SHIFT
+    } else {
+        KeyModifiers::NONE
+    };
+    component.handle_key_events(KeyEvent::new(KeyCode::Char(c), modifiers));
+}
+
+fn selected_content(component: &TaskListComponent) -> String {
+    component
+        .get_selected_task()
+        .map(|task| task.content.clone())
+        .unwrap_or_default()
+}
+
+/// G jumps to the last task and gg back to the first; a single g does nothing on its own.
+#[test]
+fn test_vim_jumps_to_the_first_and_last_task() {
+    let project_uuid = Uuid::new_v4();
+    let tasks = ["one", "two", "three"]
+        .map(|name| task_model(project_uuid, None, name))
+        .to_vec();
+    let mut component = TaskListComponent::new();
+    component.update_data(
+        tasks,
+        Vec::new(),
+        vec![project_model(project_uuid)],
+        Vec::new(),
+        SidebarSelection::Project(project_uuid),
+    );
+
+    press(&mut component, 'G');
+    assert_eq!(selected_content(&component), "three");
+
+    press(&mut component, 'g');
+    assert_eq!(selected_content(&component), "three", "one g waits for the second");
+    press(&mut component, 'g');
+    assert_eq!(selected_content(&component), "one");
+
+    // A key between the two g presses cancels the jump.
+    press(&mut component, 'j');
+    press(&mut component, 'g');
+    press(&mut component, 'j');
+    press(&mut component, 'g');
+    assert_eq!(selected_content(&component), "three");
+}

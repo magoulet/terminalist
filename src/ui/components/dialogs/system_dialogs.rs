@@ -200,6 +200,7 @@ TERMINALIST - Todoist Terminal Client
 NAVIGATION
 ----------
 j/k         Navigate tasks (down/up)
+gg / G      Jump to the first / last task (also Home / End)
 J/K         Navigate sidebar entries (down/up)
 H/L         Collapse/expand the folder under the sidebar cursor
 Mouse       Click sidebar items or tasks, scroll wheel to scroll
@@ -237,7 +238,7 @@ r           Force sync with Todoist
 /           Search across all tasks
 f           Show only one project (and its subprojects) in the
             Today, Tomorrow, Upcoming and label views
-G           Open the log dialog
+!           Open the log dialog
 Ctrl+C      Quit application
 
 GENERAL CONTROLS
@@ -373,7 +374,7 @@ pub fn render_logs_dialog(
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .title("🔍 Debug Logs - Press 'Esc', 'G' or 'q' to close")
+                .title("🔍 Debug Logs - Press 'Esc', '!' or 'q' to close")
                 .title_alignment(Alignment::Center),
         )
         .style(Style::default().fg(theme.text))

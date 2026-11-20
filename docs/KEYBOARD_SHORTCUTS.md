@@ -5,6 +5,7 @@ This document lists all available keyboard shortcuts and TUI controls.
 ## Navigation
 
 - **`j/k`** or **`↓/↑`** Navigate between tasks (down/up)
+- **`gg`** or **`Home`** Jump to the first task, **`G`** or **`End`** to the last, as in Vim
 - **`J/K`** Navigate between sidebar entries (down/up)
 - **`H`** Collapse the folder under the sidebar cursor
 - **`L`** Expand the folder under the sidebar cursor
@@ -37,7 +38,7 @@ This document lists all available keyboard shortcuts and TUI controls.
 - **`/`** Open task search dialog (search across all tasks)
 - **`f`** Filter the Today, Tomorrow, Upcoming and label views to one project and its subprojects. Type to narrow the list, `↑/↓` to move, `Enter` to apply. Pick "All projects" to clear it. The filter stays on as you switch views, the task list title shows it, and project views ignore it.
 - **`r`** Force sync with Todoist
-- **`G`** Open the log dialog
+- **`!`** Open the log dialog
 - **`?`** or **`h`** Toggle help panel
 - **`q`** Quit the application
 - **`Esc`** Close the dialog on screen. With no dialog open, quit the application.

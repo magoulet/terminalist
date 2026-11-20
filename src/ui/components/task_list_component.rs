@@ -42,6 +42,8 @@ pub struct TaskListComponent {
     pub filter_name: Option<String>,
     /// Titles of parents that are not in the view, for subtasks shown on their own.
     pub parent_names: std::collections::HashMap<Uuid, String>,
+    /// A first `g` was pressed; a second one jumps to the top, as in Vim.
+    pending_g: bool,
     pub items: Vec<TaskListItemType>,
     pub selected_index: usize,
     pub list_state: ListState,
@@ -67,6 +69,7 @@ impl TaskListComponent {
         Self {
             filter_name: None,
             parent_names: std::collections::HashMap::new(),
+            pending_g: false,
             items: Vec::new(),
             tasks: Vec::new(),
             selected_index: 0,
@@ -541,6 +544,19 @@ impl TaskListComponent {
         }
     }
 
+    /// Jump to the first task in the list.
+    fn select_first(&mut self) {
+        self.selected_index = 0;
+        self.update_list_state();
+    }
+
+    /// Jump to the last task in the list.
+    fn select_last(&mut self) {
+        let selectable_count = self.items.iter().filter(|item| item.is_selectable()).count();
+        self.selected_index = selectable_count.saturating_sub(1);
+        self.update_list_state();
+    }
+
     /// Navigate to the previous selectable item
     fn previous_task(&mut self) {
         let selectable_count = self.items.iter().filter(|item| item.is_selectable()).count();
@@ -557,7 +573,25 @@ impl TaskListComponent {
 
 impl Component for TaskListComponent {
     fn handle_key_events(&mut self, key: KeyEvent) -> Action {
+        // `gg` is two presses; any other key in between cancels the first `g`.
+        let pending_g = std::mem::take(&mut self.pending_g);
         match key.code {
+            KeyCode::Char('g') if pending_g => {
+                self.select_first();
+                Action::None
+            }
+            KeyCode::Char('g') => {
+                self.pending_g = true;
+                Action::None
+            }
+            KeyCode::Char('G') | KeyCode::End => {
+                self.select_last();
+                Action::None
+            }
+            KeyCode::Home => {
+                self.select_first();
+                Action::None
+            }
             KeyCode::Up | KeyCode::Char('k') => {
                 self.previous_task();
                 Action::None

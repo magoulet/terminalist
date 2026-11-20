@@ -67,8 +67,8 @@ impl AppComponent {
                 info!("Global key: '?' or 'h' - opening help dialog");
                 Action::ShowDialog(DialogType::Help)
             }
-            KeyCode::Char('G') => {
-                info!("Global key: 'G' - opening logs dialog");
+            KeyCode::Char('!') => {
+                info!("Global key: '!' - opening logs dialog");
                 Action::ShowDialog(DialogType::Logs)
             }
             KeyCode::Char('A') => {
