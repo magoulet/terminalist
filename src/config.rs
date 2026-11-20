@@ -164,15 +164,34 @@ impl Config {
             return Ok(Some(current_dir_config));
         }
 
-        // 2. Check XDG config directory
-        if let Some(config_dir) = dirs::config_dir() {
-            let xdg_config = config_dir.join("terminalist").join("config.toml");
-            if xdg_config.exists() {
-                return Ok(Some(xdg_config));
+        // 2. The config directory: ~/.config/terminalist (or $XDG_CONFIG_HOME/terminalist),
+        //    then the platform's own folder, where macOS builds used to look.
+        Ok(Self::config_dir_candidates()
+            .into_iter()
+            .map(|dir| dir.join("config.toml"))
+            .find(|path| path.exists()))
+    }
+
+    /// Directories a config file is looked for in, most preferred first.
+    ///
+    /// Command-line tools on macOS conventionally keep their config in `~/.config`, as on
+    /// Linux, while `dirs::config_dir()` points at `~/Library/Application Support` there.
+    /// That folder stays in the list so existing macOS configs keep loading. Windows keeps
+    /// its usual `AppData` folder.
+    fn config_dir_candidates() -> Vec<PathBuf> {
+        let mut candidates = Vec::new();
+        if !cfg!(windows) {
+            if let Some(dir) = xdg_config_home(std::env::var_os("XDG_CONFIG_HOME"), dirs::home_dir()) {
+                candidates.push(dir.join("terminalist"));
             }
         }
-
-        Ok(None)
+        if let Some(dir) = dirs::config_dir() {
+            let platform = dir.join("terminalist");
+            if !candidates.contains(&platform) {
+                candidates.push(platform);
+            }
+        }
+        candidates
     }
 
     /// Validate configuration values
@@ -239,13 +258,24 @@ impl Config {
 
     /// Get the XDG config directory path
     pub fn get_xdg_config_dir() -> Result<PathBuf> {
-        dirs::config_dir()
+        Self::config_dir_candidates()
+            .into_iter()
+            .next()
             .ok_or_else(|| anyhow::anyhow!("Could not determine config directory"))
-            .map(|dir| dir.join("terminalist"))
     }
 
     /// Get the default config file path
     pub fn get_default_config_path() -> Result<PathBuf> {
         Ok(Self::get_xdg_config_dir()?.join("config.toml"))
     }
+}
+
+/// `$XDG_CONFIG_HOME` when it is set to an absolute path, as the XDG spec requires, otherwise
+/// `~/.config`.
+#[must_use]
+pub fn xdg_config_home(xdg_config_home: Option<std::ffi::OsString>, home: Option<PathBuf>) -> Option<PathBuf> {
+    xdg_config_home
+        .map(PathBuf::from)
+        .filter(|dir| dir.is_absolute())
+        .or_else(|| home.map(|home| home.join(".config")))
 }

@@ -179,3 +179,24 @@ fn test_generate_default_config_includes_theme_section() {
     assert!(toml_str.contains("accent = \"Yellow\""));
     assert!(toml_str.contains("danger = \"Red\""));
 }
+
+#[test]
+fn test_xdg_config_home_prefers_an_absolute_xdg_config_home() {
+    use std::path::PathBuf;
+    use terminalist::config::xdg_config_home;
+    let home = Some(PathBuf::from("/Users/someone"));
+    assert_eq!(
+        xdg_config_home(Some("/tmp/xdg".into()), home.clone()),
+        Some(PathBuf::from("/tmp/xdg"))
+    );
+    // The XDG spec says to ignore a relative value.
+    assert_eq!(
+        xdg_config_home(Some("relative/dir".into()), home.clone()),
+        Some(PathBuf::from("/Users/someone/.config"))
+    );
+    assert_eq!(
+        xdg_config_home(None, home),
+        Some(PathBuf::from("/Users/someone/.config"))
+    );
+    assert_eq!(xdg_config_home(None, None), None);
+}

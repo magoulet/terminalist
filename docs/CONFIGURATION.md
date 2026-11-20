@@ -6,8 +6,9 @@ This document explains how to configure Terminalist.
 
 Terminalist supports configuration via TOML files. Configuration files are loaded in the following order of precedence:
 1. `./terminalist.toml` (project-specific config)
-2. `~/.config/terminalist/config.toml` (user config)
-3. Built-in defaults
+2. `~/.config/terminalist/config.toml` (user config), or `$XDG_CONFIG_HOME/terminalist/config.toml` when `XDG_CONFIG_HOME` is set. On Windows, the user config lives in `%APPDATA%\terminalist\config.toml` instead.
+3. On macOS, `~/Library/Application Support/terminalist/config.toml`, where earlier versions looked. It is still read when there is no file in `~/.config`.
+4. Built-in defaults
 
 ## Generate Default Configuration
 
