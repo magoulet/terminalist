@@ -14,6 +14,8 @@ This document lists all available keyboard shortcuts and TUI controls.
 
 - **`Space`** or **`Enter`** Toggle the selected task. A pending task is completed, a completed or deleted one is restored.
 - **`a`** Create new task. The text goes through Todoist Quick Add, so `Call Bob tomorrow 3pm #Work @phone p1` sets the due date, project, label and priority, and ` // text` at the end sets the description. With no `#project` in the text, the task goes to the project chosen in the dialog.
+- **`c`** Create a subtask of the selected task. The dialog works like `a`, and the subtask goes in its parent's project.
+- **`m`** Move the selected task under another task of its project, or back to the top level. Type to narrow the list, `↑/↓` to move, `Enter` to move the task.
 - **`e`** Edit selected task
 - **`d`** or **`Delete`** Delete selected task (with confirmation). A deleted task is restored instead.
 - **`p`** Cycle task priority
@@ -80,6 +82,7 @@ Tasks are displayed with:
 - **Status Icons**: ☐ (pending), ☒ (completed), ✗ (deleted)
 - **Priority Flags**: a coloured flag before the content - ⚑ red (P1, urgent), ⚑ orange (P2, high), ⚑ blue (P3, medium), ⚐ white (P4, normal).
 - **Label Badges**: Colored badges showing task labels
+- **Subtasks**: Indented under their parent. A subtask whose parent isn't in the view (a subtask due today under a parent with no date, say) is listed on its own, followed by `↳` and its parent's name.
 - **Task Content**: Truncated to fit the display width
 - **Completion Visual**: Completed tasks appear dimmed
 - **Interactive**: Press Space or Enter to toggle completion

@@ -2,7 +2,7 @@
 //! and the task list have each had their turn in `handle_event`.
 
 use super::AppComponent;
-use crate::constants::UI_NO_TASK_SELECTED_DUE_DATE;
+use crate::constants::{UI_NO_TASK_SELECTED, UI_NO_TASK_SELECTED_DUE_DATE};
 use crate::entities::{label, project};
 use crate::ui::core::actions::{Action, DialogType};
 use crate::ui::core::operations::Due;
@@ -154,6 +154,23 @@ impl AppComponent {
                     Action::ShowDialog(DialogType::Info(UI_NO_TASK_SELECTED_DUE_DATE.to_string()))
                 }
             }
+            KeyCode::Char('c') => match self.task_list.get_selected_task() {
+                Some(task) => {
+                    info!("Global key: 'c' - creating a subtask of '{}'", task.content);
+                    Action::ShowDialog(DialogType::TaskCreation {
+                        default_project_uuid: Some(task.project_uuid),
+                        parent: Some((task.uuid, task.content.clone())),
+                    })
+                }
+                None => Action::ShowDialog(DialogType::Info(UI_NO_TASK_SELECTED.to_string())),
+            },
+            KeyCode::Char('m') => match self.task_list.get_selected_task() {
+                Some(task) => {
+                    info!("Global key: 'm' - moving '{}' under another task", task.content);
+                    Action::OpenParentPicker(task.uuid)
+                }
+                None => Action::ShowDialog(DialogType::Info(UI_NO_TASK_SELECTED.to_string())),
+            },
             KeyCode::Char('f') => {
                 info!("Global key: 'f' - opening project filter");
                 Action::ShowDialog(DialogType::ProjectFilter {

@@ -151,12 +151,16 @@ impl TaskManager {
                         }
                     };
 
+                    let missing = crate::ui::core::subtasks::missing_parents(&tasks);
+                    let parent_names = sync_service.task_titles(&missing).await.unwrap_or_default();
+
                     let _ = action_sender.send(Action::DataLoaded {
                         kind,
                         projects,
                         labels,
                         sections,
                         tasks,
+                        parent_names,
                     });
                 }
                 (Err(e), _, _) | (_, Err(e), _) | (_, _, Err(e)) => {

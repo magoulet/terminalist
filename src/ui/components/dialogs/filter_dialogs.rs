@@ -1,6 +1,8 @@
+//! Picker dialogs: a query field over a list of choices, used by the project filter and by
+//! "move under" for subtasks.
+
 use super::common::{self, shortcuts};
 use crate::theme::Theme;
-use crate::ui::core::project_filter::PickerEntry;
 use crate::ui::layout::LayoutManager;
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
@@ -9,51 +11,55 @@ use ratatui::{
     widgets::{Block, BorderType, Borders, Clear, List, ListItem, ListState},
     Frame,
 };
-use uuid::Uuid;
 
-/// The project filter picker: a query field over a list of matching projects.
-#[allow(clippy::too_many_arguments)]
-pub fn render_project_filter_dialog(
-    f: &mut Frame,
-    area: Rect,
-    query: &str,
-    cursor_position: usize,
-    entries: &[PickerEntry],
-    selected: usize,
-    current: Option<Uuid>,
-    theme: &Theme,
-) {
+/// One row of a picker.
+pub struct PickerRow {
+    pub label: String,
+    pub depth: usize,
+    /// Marks the choice already in effect.
+    pub current: bool,
+}
+
+/// What a picker dialog shows.
+pub struct PickerView<'a> {
+    pub title: &'a str,
+    pub list_title: &'a str,
+    pub action: &'static str,
+    pub query: &'a str,
+    pub cursor: usize,
+    pub rows: Vec<PickerRow>,
+    pub selected: usize,
+}
+
+pub fn render_picker_dialog(f: &mut Frame, area: Rect, view: &PickerView, theme: &Theme) {
     // Tall enough for a useful list, never taller than the screen.
     let lines = area.height.saturating_sub(4).clamp(10, 24);
     let dialog_area = LayoutManager::centered_rect_lines(50, lines, area);
     f.render_widget(Clear, dialog_area);
 
-    let main_block = common::create_dialog_block("Filter by Project", theme.info);
+    let main_block = common::create_dialog_block(view.title, theme.info);
     let inner_area = main_block.inner(dialog_area);
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .margin(1)
         .constraints([
             Constraint::Length(3), // Query field
-            Constraint::Min(3),    // Project list
+            Constraint::Min(3),    // Choices
             Constraint::Length(1), // Instructions
         ])
         .split(inner_area);
 
-    let input_paragraph = common::create_input_paragraph(query, cursor_position, "Type to narrow", theme);
+    let input_paragraph = common::create_input_paragraph(view.query, view.cursor, "Type to narrow", theme);
 
-    let items: Vec<ListItem> = entries
+    let items: Vec<ListItem> = view
+        .rows
         .iter()
-        .map(|entry| {
-            let marker = if entry.project == current { "● " } else { "  " };
-            let indent = "  ".repeat(entry.depth);
-            let prefix = if entry.project.is_some() { "#" } else { "" };
+        .map(|row| {
+            let marker = if row.current { "● " } else { "  " };
+            let indent = "  ".repeat(row.depth);
             ListItem::new(Line::from(vec![
                 Span::styled(marker, Style::default().fg(theme.info)),
-                Span::styled(
-                    format!("{indent}{prefix}{}", entry.name),
-                    Style::default().fg(theme.text),
-                ),
+                Span::styled(format!("{indent}{}", row.label), Style::default().fg(theme.text)),
             ]))
         })
         .collect();
@@ -63,16 +69,16 @@ pub fn render_project_filter_dialog(
             Block::default()
                 .borders(Borders::ALL)
                 .border_type(BorderType::Rounded)
-                .title(" Projects ")
+                .title(format!(" {} ", view.list_title))
                 .title_style(Style::default().fg(theme.text))
                 .border_style(Style::default().fg(theme.border_dim)),
         )
         .highlight_style(Style::default().bg(theme.selection_bg).add_modifier(Modifier::BOLD));
     let mut list_state = ListState::default();
-    list_state.select(Some(selected.min(entries.len().saturating_sub(1))));
+    list_state.select(Some(view.selected.min(view.rows.len().saturating_sub(1))));
 
     let instructions = [
-        ("Enter", theme.success, " Apply"),
+        ("Enter", theme.success, view.action),
         shortcuts::separator(theme),
         ("↑/↓", theme.info, " Move"),
         shortcuts::separator(theme),
@@ -85,5 +91,5 @@ pub fn render_project_filter_dialog(
     f.render_stateful_widget(list, chunks[1], &mut list_state);
     f.render_widget(instructions_paragraph, chunks[2]);
 
-    f.set_cursor_position((chunks[0].x + 1 + cursor_position as u16, chunks[0].y + 1));
+    f.set_cursor_position((chunks[0].x + 1 + view.cursor as u16, chunks[0].y + 1));
 }

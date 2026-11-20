@@ -6,8 +6,9 @@ use super::AppComponent;
 use crate::constants::*;
 use crate::sync::SyncStatus;
 use crate::ui::components::toast::Toast;
-use crate::ui::core::actions::Action;
+use crate::ui::core::actions::{Action, DialogType};
 use crate::ui::core::operations::Operation;
+use crate::ui::core::Component;
 use crate::ui::core::{LoadKind, SidebarSelection};
 use log::info;
 
@@ -118,6 +119,7 @@ impl AppComponent {
                 content,
                 project_uuid,
                 description,
+                parent_uuid,
             } => {
                 match project_uuid {
                     Some(uuid) => info!("Task: Creating '{}' in project {}", content, uuid),
@@ -127,6 +129,38 @@ impl AppComponent {
                     content,
                     project: project_uuid,
                     description,
+                    parent: parent_uuid,
+                });
+                Action::None
+            }
+            Action::OpenParentPicker(task_uuid) => {
+                // Candidates are the task's whole project, not just what the view loaded.
+                let task = match self.sync_service.get_task_by_id(&task_uuid).await {
+                    Ok(Some(task)) => task,
+                    _ => return Action::None,
+                };
+                match self.sync_service.get_tasks_for_project(&task.project_uuid).await {
+                    Ok(candidates) => {
+                        self.dialog.update(Action::ShowDialog(DialogType::ParentPicker {
+                            task_uuid,
+                            content: task.content,
+                            current_parent: task.parent_uuid,
+                            candidates,
+                        }));
+                    }
+                    Err(e) => {
+                        self.dialog.update(Action::ShowDialog(DialogType::Error(format!(
+                            "Failed to load tasks: {e}"
+                        ))));
+                    }
+                }
+                Action::None
+            }
+            Action::SetTaskParent { task_uuid, parent } => {
+                info!("Task: Moving {} under {:?}", self.describe_task(task_uuid), parent);
+                self.spawn(Operation::SetParent {
+                    task: task_uuid,
+                    parent,
                 });
                 Action::None
             }
@@ -245,6 +279,7 @@ impl AppComponent {
                 labels,
                 sections,
                 tasks,
+                parent_names,
             } => {
                 info!(
                     "Data: Loaded {} projects, {} labels, {} sections, {} tasks ({:?})",
@@ -262,6 +297,7 @@ impl AppComponent {
                 };
 
                 self.state.update_data(projects, labels, sections, tasks);
+                self.state.parent_names = parent_names;
                 if self.state.drop_stale_project_filter() {
                     info!("Filter: filtered project no longer exists, clearing the filter");
                 }

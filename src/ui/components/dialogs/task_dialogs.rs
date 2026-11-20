@@ -23,6 +23,8 @@ pub struct TaskDialogView<'a> {
     pub focus: TaskField,
     pub project_name: String,
     pub is_editing: bool,
+    /// Creating a subtask: `project_name` holds the parent's title, which can't be changed.
+    pub is_subtask: bool,
 }
 
 /// A field's frame, brighter while it has focus.
@@ -39,7 +41,13 @@ fn field_block<'a>(title: &str, focused: bool, theme: &Theme) -> Block<'a> {
 /// Draws the task dialog and returns the description field's text width, which the dialog
 /// needs to move the cursor up and down a wrapped row.
 pub fn render_task_dialog(f: &mut Frame, area: Rect, view: &TaskDialogView, theme: &Theme) -> usize {
-    let title = if view.is_editing { "Edit Task" } else { "New Task" };
+    let title = if view.is_editing {
+        "Edit Task"
+    } else if view.is_subtask {
+        "New Subtask"
+    } else {
+        "New Task"
+    };
     let dialog_area = LayoutManager::centered_rect_lines(65, 21, area);
     f.render_widget(Clear, dialog_area);
 
@@ -87,13 +95,15 @@ pub fn render_task_dialog(f: &mut Frame, area: Rect, view: &TaskDialogView, them
         .style(Style::default().fg(theme.text));
 
     let project_focused = view.focus == TaskField::Project;
-    let project_text = if project_focused {
-        format!("◀ {} ▶", view.project_name)
+    let (project_label, project_text) = if view.is_subtask {
+        ("Subtask of", view.project_name.clone())
+    } else if project_focused {
+        ("Project", format!("◀ {} ▶", view.project_name))
     } else {
-        view.project_name.clone()
+        ("Project", view.project_name.clone())
     };
     let project = Paragraph::new(project_text)
-        .block(field_block("Project", project_focused, theme))
+        .block(field_block(project_label, project_focused, theme))
         .style(Style::default().fg(theme.text));
 
     let save = if view.is_editing { " Save Task" } else { " Create Task" };

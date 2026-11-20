@@ -40,6 +40,8 @@ use uuid::Uuid;
 pub struct TaskListComponent {
     /// Project the view is filtered to, shown in the title. Set by the app before `update_data`.
     pub filter_name: Option<String>,
+    /// Titles of parents that are not in the view, for subtasks shown on their own.
+    pub parent_names: std::collections::HashMap<Uuid, String>,
     pub items: Vec<TaskListItemType>,
     pub selected_index: usize,
     pub list_state: ListState,
@@ -64,6 +66,7 @@ impl TaskListComponent {
     pub fn new() -> Self {
         Self {
             filter_name: None,
+            parent_names: std::collections::HashMap::new(),
             items: Vec::new(),
             tasks: Vec::new(),
             selected_index: 0,
@@ -138,7 +141,7 @@ impl TaskListComponent {
         let mut today_tasks = Vec::new();
 
         // Separate tasks by date (only root tasks - subtasks will be added recursively)
-        for task in self.tasks.iter().filter(|t| t.parent_uuid.is_none()) {
+        for task in self.root_tasks() {
             if let Some(due_date_str) = &task.due_date {
                 if let Ok(due_date) = datetime::parse_date(due_date_str) {
                     if due_date < now {
@@ -191,9 +194,8 @@ impl TaskListComponent {
 
         // Filter for root tasks due tomorrow
         let tasks: Vec<task::Model> = self
-            .tasks
-            .iter()
-            .filter(|t| t.parent_uuid.is_none())
+            .root_tasks()
+            .into_iter()
             .filter(|t| {
                 if let Some(due_date_str) = &t.due_date {
                     if let Ok(due_date) = datetime::parse_date(due_date_str) {
@@ -225,7 +227,7 @@ impl TaskListComponent {
         let mut future_tasks_by_date: BTreeMap<chrono::NaiveDate, Vec<task::Model>> = BTreeMap::new();
 
         // Group tasks by date (only root tasks - subtasks will be added recursively)
-        for task in self.tasks.iter().filter(|t| t.parent_uuid.is_none()) {
+        for task in self.root_tasks() {
             if let Some(due_date_str) = &task.due_date {
                 if let Ok(due_date) = datetime::parse_date(due_date_str) {
                     if due_date < today {
@@ -291,7 +293,7 @@ impl TaskListComponent {
         // A task pointing at a section we don't have (torn read across a sync, or a section
         // belonging to another project) falls back to the no-section bucket so it stays visible.
         let mut tasks_by_section: HashMap<Option<Uuid>, Vec<task::Model>> = HashMap::new();
-        for task in self.tasks.iter().filter(|t| t.parent_uuid.is_none()) {
+        for task in self.root_tasks() {
             if &task.project_uuid == project_id {
                 let key = task.section_uuid.filter(|uuid| known_sections.contains(uuid));
                 tasks_by_section.entry(key).or_default().push(task.clone());
@@ -327,16 +329,21 @@ impl TaskListComponent {
     /// Build items for Label view
     fn build_label_items(&mut self, _label_id: &Uuid) {
         // Filter tasks that have the specific label (only root tasks - subtasks will be added recursively)
-        let filtered_tasks: Vec<task::Model> = self
-            .tasks
-            .iter()
-            .filter(|task| task.parent_uuid.is_none()) // TODO: Add label filtering
-            .cloned()
-            .collect();
+        let filtered_tasks: Vec<task::Model> = self.root_tasks().into_iter().cloned().collect();
 
         for task in filtered_tasks {
             self.add_task_and_children_to_items(task, 0);
         }
+    }
+
+    /// Tasks that start a row of their own, in loaded order: top-level tasks, and subtasks
+    /// whose parent is not in the view.
+    fn root_tasks(&self) -> Vec<&task::Model> {
+        let loaded: std::collections::HashSet<Uuid> = self.tasks.iter().map(|task| task.uuid).collect();
+        self.tasks
+            .iter()
+            .filter(|task| crate::ui::core::subtasks::is_root(task, &loaded))
+            .collect()
     }
 
     /// Recursively add a task and its children to the items list
@@ -353,7 +360,14 @@ impl TaskListComponent {
 
         // Create and add the task item
         // TODO: Load task-label relationships from database
-        let task_item = TaskItem::new(task.clone(), depth, child_count, project_name, Vec::new());
+        let mut task_item = TaskItem::new(task.clone(), depth, child_count, project_name, Vec::new());
+        // A subtask on a row of its own names its parent, which is not in the view.
+        if depth == 0 {
+            // A parent missing from the cache too (completed elsewhere, say) still gets a marker.
+            task_item.parent_name = task
+                .parent_uuid
+                .map(|parent| self.parent_names.get(&parent).cloned().unwrap_or_else(|| "subtask".to_string()));
+        }
         self.items.push(TaskListItemType::Task(Box::new(task_item)));
 
         // Find and add children
@@ -570,7 +584,10 @@ impl Component for TaskListComponent {
                     SidebarSelection::Project(uuid) => Some(uuid),
                     _ => None,
                 };
-                Action::ShowDialog(DialogType::TaskCreation { default_project_uuid })
+                Action::ShowDialog(DialogType::TaskCreation {
+                    default_project_uuid,
+                    parent: None,
+                })
             }
             KeyCode::Char('e') => {
                 if let Some(task) = self.get_selected_task() {

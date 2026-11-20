@@ -129,6 +129,7 @@ fn test_task_creation_takes_a_multi_line_description() {
     let mut dialog = DialogComponent::new();
     dialog.update(Action::ShowDialog(DialogType::TaskCreation {
         default_project_uuid: None,
+        parent: None,
     }));
     type_text(&mut dialog, "Call Bob tomorrow");
     press(&mut dialog, KeyCode::Tab);
@@ -154,6 +155,7 @@ fn test_task_creation_without_description_sends_none() {
     let mut dialog = DialogComponent::new();
     dialog.update(Action::ShowDialog(DialogType::TaskCreation {
         default_project_uuid: None,
+        parent: None,
     }));
     type_text(&mut dialog, "Water plants");
     match press(&mut dialog, KeyCode::Enter) {
@@ -194,4 +196,106 @@ fn test_reschedule_ignores_an_empty_date() {
     type_text(&mut dialog, "   ");
     assert!(matches!(press(&mut dialog, KeyCode::Enter), Action::None));
     assert!(dialog.is_visible());
+}
+
+/// A subtask dialog sends the parent along and keeps the project fixed.
+#[test]
+fn test_subtask_creation_sends_the_parent_and_locks_the_project() {
+    let work = project_model(Uuid::new_v4(), "Work", false);
+    let home = project_model(Uuid::new_v4(), "Home", false);
+    let parent = Uuid::new_v4();
+    let mut dialog = DialogComponent::new();
+    dialog.update_data_with_tasks(vec![work.clone(), home], Vec::new(), Vec::new());
+    dialog.update(Action::ShowDialog(DialogType::TaskCreation {
+        default_project_uuid: Some(work.uuid),
+        parent: Some((parent, "Plan trip".to_string())),
+    }));
+    type_text(&mut dialog, "Book hotel");
+    focus_project(&mut dialog);
+    press(&mut dialog, KeyCode::Right);
+    assert_eq!(dialog.selected_task_project_uuid, Some(work.uuid));
+
+    match press(&mut dialog, KeyCode::Enter) {
+        Action::CreateTask {
+            content, parent_uuid, ..
+        } => {
+            assert_eq!(content, "Book hotel");
+            assert_eq!(parent_uuid, Some(parent));
+        }
+        other => panic!("expected CreateTask, got {other:?}"),
+    }
+}
+
+fn task_model(content: &str, parent: Option<Uuid>) -> terminalist::entities::task::Model {
+    terminalist::entities::task::Model {
+        uuid: Uuid::new_v4(),
+        backend_uuid: Uuid::nil(),
+        remote_id: content.to_string(),
+        content: content.to_string(),
+        description: None,
+        project_uuid: Uuid::nil(),
+        section_uuid: None,
+        parent_uuid: parent,
+        priority: 1,
+        order_index: 0,
+        due_date: None,
+        due_datetime: None,
+        is_recurring: false,
+        deadline: None,
+        duration: None,
+        is_completed: false,
+        is_deleted: false,
+    }
+}
+
+fn parent_picker(
+    moving: &terminalist::entities::task::Model,
+    others: &[terminalist::entities::task::Model],
+) -> DialogComponent {
+    let mut candidates = others.to_vec();
+    candidates.push(moving.clone());
+    let mut dialog = DialogComponent::new();
+    dialog.update(Action::ShowDialog(DialogType::ParentPicker {
+        task_uuid: moving.uuid,
+        content: moving.content.clone(),
+        current_parent: moving.parent_uuid,
+        candidates,
+    }));
+    dialog
+}
+
+/// Typing narrows to a task and Enter moves the task under it.
+#[test]
+fn test_parent_picker_moves_under_the_chosen_task() {
+    let trip = task_model("Plan trip", None);
+    let groceries = task_model("Groceries", None);
+    let moving = task_model("Book hotel", None);
+    let mut dialog = parent_picker(&moving, &[trip.clone(), groceries]);
+
+    type_text(&mut dialog, "trip");
+    match press(&mut dialog, KeyCode::Enter) {
+        Action::SetTaskParent { task_uuid, parent } => {
+            assert_eq!(task_uuid, moving.uuid);
+            assert_eq!(parent, Some(trip.uuid));
+        }
+        other => panic!("expected SetTaskParent, got {other:?}"),
+    }
+}
+
+/// The picker opens on the current parent; the "No parent" row moves a subtask back out,
+/// and picking the parent it already has just closes the dialog.
+#[test]
+fn test_parent_picker_top_level_row_and_unchanged_parent() {
+    let trip = task_model("Plan trip", None);
+    let moving = task_model("Book hotel", Some(trip.uuid));
+
+    let mut unchanged = parent_picker(&moving, std::slice::from_ref(&trip));
+    assert!(matches!(press(&mut unchanged, KeyCode::Enter), Action::HideDialog));
+
+    let mut out = parent_picker(&moving, &[trip]);
+    press(&mut out, KeyCode::Up);
+    match press(&mut out, KeyCode::Enter) {
+        Action::SetTaskParent { parent, .. } => assert_eq!(parent, None),
+        other => panic!("expected SetTaskParent, got {other:?}"),
+    }
 }

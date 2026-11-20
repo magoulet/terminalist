@@ -2,12 +2,12 @@
 
 use super::{
     Backend, BackendError, BackendLabel, BackendProject, BackendSection, BackendTask, CreateLabelArgs,
-    CreateProjectArgs, CreateTaskArgs, UpdateLabelArgs, UpdateProjectArgs, UpdateTaskArgs,
+    CreateProjectArgs, CreateTaskArgs, MoveTarget, UpdateLabelArgs, UpdateProjectArgs, UpdateTaskArgs,
 };
 use async_trait::async_trait;
 use todoist_api::{TodoistError, TodoistWrapper};
 
-const QUICK_ADD_URL: &str = "https://api.todoist.com/api/v1/tasks/quick";
+const API_BASE: &str = "https://api.todoist.com/api/v1";
 
 fn map_err(e: TodoistError) -> BackendError {
     match e {
@@ -28,8 +28,8 @@ fn map_err(e: TodoistError) -> BackendError {
 
 /// Sorts a failed HTTP status into the backend error categories, the same way
 /// `todoist_api` does for the calls it wraps.
-fn status_error(status: u16, body: &str) -> BackendError {
-    let message = format!("Quick Add failed with HTTP {status}: {body}");
+fn status_error(call: &str, status: u16, body: &str) -> BackendError {
+    let message = format!("{call} failed with HTTP {status}: {body}");
     match status {
         401 | 403 => BackendError::Auth(message),
         404 => BackendError::NotFound(message),
@@ -42,7 +42,8 @@ fn status_error(status: u16, body: &str) -> BackendError {
 /// Todoist backend implementation.
 pub struct TodoistBackend {
     wrapper: TodoistWrapper,
-    // `todoist_api` has no Quick Add call, so that one endpoint is called directly.
+    // `todoist_api` has no Quick Add call, and its move call only takes a project, so those
+    // two endpoints are called directly.
     http: reqwest::Client,
     api_token: String,
 }
@@ -59,6 +60,37 @@ impl TodoistBackend {
             http,
             api_token,
         }
+    }
+
+    /// POSTs `body` to an API v1 endpoint that answers with a task, for the calls
+    /// `todoist_api` does not cover. `call` names the call in error messages.
+    async fn post_for_task(
+        &self,
+        call: &str,
+        path: &str,
+        body: serde_json::Value,
+    ) -> Result<BackendTask, BackendError> {
+        let response = self
+            .http
+            .post(format!("{API_BASE}/{path}"))
+            .bearer_auth(&self.api_token)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| BackendError::Network(format!("{call} request failed: {e}")))?;
+
+        let status = response.status();
+        let text = response
+            .text()
+            .await
+            .map_err(|e| BackendError::Network(format!("{call} response could not be read: {e}")))?;
+        if !status.is_success() {
+            return Err(status_error(call, status.as_u16(), &text));
+        }
+
+        let task: todoist_api::Task = serde_json::from_str(&text)
+            .map_err(|e| BackendError::InvalidData(format!("{call} response could not be parsed: {e}")))?;
+        Ok(Self::task_to_backend(&task))
     }
 
     // Helper: Transform Todoist API project → Backend project
@@ -261,27 +293,8 @@ impl Backend for TodoistBackend {
     }
 
     async fn quick_add_task(&self, text: &str) -> Result<BackendTask, BackendError> {
-        let response = self
-            .http
-            .post(QUICK_ADD_URL)
-            .bearer_auth(&self.api_token)
-            .json(&serde_json::json!({ "text": text }))
-            .send()
+        self.post_for_task("Quick Add", "tasks/quick", serde_json::json!({ "text": text }))
             .await
-            .map_err(|e| BackendError::Network(format!("Quick Add request failed: {e}")))?;
-
-        let status = response.status();
-        let body = response
-            .text()
-            .await
-            .map_err(|e| BackendError::Network(format!("Quick Add response could not be read: {e}")))?;
-        if !status.is_success() {
-            return Err(status_error(status.as_u16(), &body));
-        }
-
-        let task: todoist_api::Task = serde_json::from_str(&body)
-            .map_err(|e| BackendError::InvalidData(format!("Quick Add response could not be parsed: {e}")))?;
-        Ok(Self::task_to_backend(&task))
     }
 
     async fn update_task(&self, remote_id: &str, args: UpdateTaskArgs) -> Result<BackendTask, BackendError> {
@@ -312,6 +325,15 @@ impl Backend for TodoistBackend {
     async fn move_task(&self, remote_id: &str, project_remote_id: &str) -> Result<(), BackendError> {
         self.wrapper.move_task(remote_id, project_remote_id).await.map_err(map_err)?;
         Ok(())
+    }
+
+    async fn move_task_to(&self, remote_id: &str, target: MoveTarget) -> Result<BackendTask, BackendError> {
+        let body = match target {
+            MoveTarget::Project(id) => serde_json::json!({ "project_id": id }),
+            MoveTarget::Section(id) => serde_json::json!({ "section_id": id }),
+            MoveTarget::Parent(id) => serde_json::json!({ "parent_id": id }),
+        };
+        self.post_for_task("Move", &format!("tasks/{remote_id}/move"), body).await
     }
 
     async fn delete_task(&self, remote_id: &str) -> Result<(), BackendError> {
@@ -373,13 +395,13 @@ mod tests {
 
     #[test]
     fn quick_add_status_maps_to_backend_error_categories() {
-        assert!(matches!(status_error(401, ""), BackendError::Auth(_)));
-        assert!(matches!(status_error(403, ""), BackendError::Auth(_)));
-        assert!(matches!(status_error(404, ""), BackendError::NotFound(_)));
-        assert!(matches!(status_error(429, ""), BackendError::Network(_)));
-        assert!(matches!(status_error(503, ""), BackendError::Network(_)));
-        assert!(matches!(status_error(400, ""), BackendError::InvalidData(_)));
-        assert!(matches!(status_error(418, ""), BackendError::Other(_)));
+        assert!(matches!(status_error("Call", 401, ""), BackendError::Auth(_)));
+        assert!(matches!(status_error("Call", 403, ""), BackendError::Auth(_)));
+        assert!(matches!(status_error("Call", 404, ""), BackendError::NotFound(_)));
+        assert!(matches!(status_error("Call", 429, ""), BackendError::Network(_)));
+        assert!(matches!(status_error("Call", 503, ""), BackendError::Network(_)));
+        assert!(matches!(status_error("Call", 400, ""), BackendError::InvalidData(_)));
+        assert!(matches!(status_error("Call", 418, ""), BackendError::Other(_)));
     }
 
     #[test]

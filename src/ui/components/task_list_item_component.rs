@@ -56,6 +56,8 @@ pub struct TaskItem {
     pub child_count: usize,
     pub project_name: Option<String>,
     pub labels: Vec<crate::entities::label::Model>,
+    /// Set for a subtask shown without its parent above it, to say whose subtask it is.
+    pub parent_name: Option<String>,
 }
 
 impl TaskItem {
@@ -72,6 +74,7 @@ impl TaskItem {
             child_count,
             project_name,
             labels,
+            parent_name: None,
         }
     }
 
@@ -149,6 +152,14 @@ impl ListItem for TaskItem {
             Style::default().fg(theme.text)
         };
         line_spans.push(Span::styled(self.task.content.clone(), content_style));
+
+        // A subtask whose parent is not in the view says whose subtask it is.
+        if let Some(parent) = &self.parent_name {
+            line_spans.push(Span::styled(
+                format!(" ↳ {parent}"),
+                Style::default().fg(theme.text_muted).add_modifier(Modifier::ITALIC),
+            ));
+        }
 
         // Child task count (for tasks with children)
         if self.child_count > 0 {

@@ -1,3 +1,4 @@
+use crate::backend::MoveTarget;
 use crate::entities::task;
 use crate::repositories::{ProjectRepository, SectionRepository, TaskRepository};
 use crate::sync::SyncService;
@@ -112,6 +113,19 @@ impl SyncService {
         let today = datetime::format_today();
         let three_months_later = datetime::format_date_with_offset(90);
         TaskRepository::get_for_upcoming(&storage.conn, &today, &three_months_later).await
+    }
+
+    /// Titles of the given tasks, keyed by UUID. Used to name the parent of a subtask whose
+    /// parent is not in the current view. Unknown UUIDs are skipped.
+    pub async fn task_titles(&self, uuids: &[Uuid]) -> Result<std::collections::HashMap<Uuid, String>> {
+        let storage = self.storage.lock().await;
+        let mut titles = std::collections::HashMap::new();
+        for uuid in uuids {
+            if let Some(task) = TaskRepository::get_by_id(&storage.conn, uuid).await? {
+                titles.insert(*uuid, task.content);
+            }
+        }
+        Ok(titles)
     }
 
     /// Get a single task by ID from local storage (fast)
@@ -244,6 +258,9 @@ impl SyncService {
     ///
     /// A `description` replaces any ` // description` Quick Add parsed out of the text.
     ///
+    /// With a `parent_uuid` the task becomes that task's subtask, which also puts it in the
+    /// parent's project and section, whatever the text or `project_uuid` say.
+    ///
     /// # Errors
     /// Returns an error if the backend call fails or local storage update fails
     pub async fn quick_add_task(
@@ -251,9 +268,22 @@ impl SyncService {
         text: &str,
         project_uuid: Option<Uuid>,
         description: Option<&str>,
+        parent_uuid: Option<Uuid>,
     ) -> Result<QuickAddOutcome> {
         let backend = self.get_backend().await?;
         let mut backend_task = backend.quick_add_task(text).await?;
+
+        if let Some(parent) = parent_uuid {
+            let parent_remote_id = self.get_task_remote_id(&parent).await?;
+            let moved = backend
+                .move_task_to(&backend_task.remote_id, MoveTarget::Parent(parent_remote_id))
+                .await?;
+            backend_task.project_remote_id = moved.project_remote_id;
+            backend_task.section_remote_id = moved.section_remote_id;
+            backend_task.parent_remote_id = moved.parent_remote_id;
+        }
+        // A subtask's project comes from its parent, so the dialog's project no longer applies.
+        let project_uuid = project_uuid.filter(|_| parent_uuid.is_none());
 
         let (target_remote_id, inbox_remote_id) = {
             let storage = self.storage.lock().await;
@@ -305,6 +335,44 @@ impl SyncService {
         txn.commit().await?;
 
         Ok(QuickAddOutcome { content, in_inbox })
+    }
+
+    /// Makes a task a subtask of `parent`, or moves it back to the top level with `None`.
+    /// At the top level it stays in its section, if it had one.
+    ///
+    /// # Errors
+    /// Returns an error if the backend call fails or local storage update fails
+    pub async fn set_task_parent(&self, task_uuid: &Uuid, parent: Option<Uuid>) -> Result<()> {
+        let (remote_id, target) = {
+            let storage = self.storage.lock().await;
+            let task = TaskRepository::get_by_id(&storage.conn, task_uuid)
+                .await?
+                .ok_or_else(|| anyhow::anyhow!("Task not found in local storage: {task_uuid}"))?;
+            let target = match parent {
+                Some(parent) => MoveTarget::Parent(TaskRepository::get_remote_id(&storage.conn, &parent).await?),
+                None => match task.section_uuid {
+                    Some(section) => match SectionRepository::get_remote_id(&storage.conn, &section).await? {
+                        Some(remote) => MoveTarget::Section(remote),
+                        None => MoveTarget::Project(
+                            ProjectRepository::get_remote_id(&storage.conn, &task.project_uuid).await?,
+                        ),
+                    },
+                    None => {
+                        MoveTarget::Project(ProjectRepository::get_remote_id(&storage.conn, &task.project_uuid).await?)
+                    }
+                },
+            };
+            (task.remote_id, target)
+        };
+
+        let moved = self.get_backend().await?.move_task_to(&remote_id, target).await?;
+
+        // The batch writer resolves the parent, project and section from the moved task.
+        let storage = self.storage.lock().await;
+        let txn = storage.conn.begin().await?;
+        self.store_tasks_batch(&txn, std::slice::from_ref(&moved)).await?;
+        txn.commit().await?;
+        Ok(())
     }
 
     /// Update task content, and the description when one is given. `Some("")` clears it.

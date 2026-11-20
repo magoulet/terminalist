@@ -138,6 +138,18 @@ pub struct UpdateLabelArgs {
     pub is_favorite: Option<bool>,
 }
 
+/// Where a task is moved to. A task sits at the top level of a project or section, or under
+/// a parent task, which also puts it in the parent's project and section.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum MoveTarget {
+    /// The top level of a project, outside any section.
+    Project(String),
+    /// The top level of a section.
+    Section(String),
+    /// Under another task, as its subtask.
+    Parent(String),
+}
+
 /// Backend trait that all task management backends must implement.
 ///
 /// This trait defines the common interface for interacting with different
@@ -163,6 +175,8 @@ pub trait Backend: Send + Sync {
     async fn quick_add_task(&self, text: &str) -> Result<BackendTask, BackendError>;
     async fn update_task(&self, remote_id: &str, args: UpdateTaskArgs) -> Result<BackendTask, BackendError>;
     async fn move_task(&self, remote_id: &str, project_remote_id: &str) -> Result<(), BackendError>;
+    /// Move a task to a project, a section or under a parent task. Returns the moved task.
+    async fn move_task_to(&self, remote_id: &str, target: MoveTarget) -> Result<BackendTask, BackendError>;
     async fn delete_task(&self, remote_id: &str) -> Result<(), BackendError>;
     async fn complete_task(&self, remote_id: &str) -> Result<(), BackendError>;
     async fn reopen_task(&self, remote_id: &str) -> Result<(), BackendError>;

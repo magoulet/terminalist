@@ -14,6 +14,8 @@ pub struct AppState {
     pub sidebar_selection: SidebarSelection,
     /// Project the date and label views are narrowed to. It stays set across views.
     pub project_filter: Option<Uuid>,
+    /// Titles of parents that loaded subtasks point at but that the view did not load.
+    pub parent_names: std::collections::HashMap<Uuid, String>,
     pub loading: bool,
     pub show_help: bool,
     /// didnt we just got rid of custom scrolling ?

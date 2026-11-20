@@ -11,6 +11,7 @@
 //! - [`event_handler`] - Event processing and keyboard/mouse input handling
 //! - [`operations`] - Argument encoding for background operations
 //! - [`project_filter`] - Narrowing a view to one project and its subprojects
+//! - [`subtasks`] - Placing subtasks whose parent is not in the view
 //! - [`task_manager`] - Background task management and async operation handling
 //!
 //! # Architecture
@@ -31,6 +32,7 @@ pub(crate) mod component;
 pub mod event_handler;
 pub mod operations;
 pub mod project_filter;
+pub mod subtasks;
 pub mod task_manager;
 
 // Re-export core types for easier access from other modules

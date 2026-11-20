@@ -66,6 +66,11 @@ pub enum Operation {
         content: String,
         project: Option<Uuid>,
         description: Option<String>,
+        parent: Option<Uuid>,
+    },
+    SetParent {
+        task: Uuid,
+        parent: Option<Uuid>,
     },
     EditTask {
         task: Uuid,
@@ -104,6 +109,13 @@ impl Operation {
             Operation::CyclePriority { task, priority } => format!("Cycle priority: {task} -> P{priority}"),
             Operation::SetDue { task, when } => format!("Set task due {when:?}: {task}"),
             Operation::Reschedule { task, due } => format!("Reschedule task to '{due}': {task}"),
+            Operation::SetParent { task, parent } => match parent {
+                Some(parent) => format!("Move task under {parent}: {task}"),
+                None => format!("Move task to the top level: {task}"),
+            },
+            Operation::CreateTask {
+                parent: Some(parent), ..
+            } => format!("Create subtask: under {parent}"),
             Operation::CreateTask { project, .. } => match project {
                 Some(project) => format!("Create task: in project {project}"),
                 None => "Create task: in inbox".to_string(),
@@ -161,13 +173,21 @@ impl Operation {
                 Ok(None) => done(SUCCESS_TASK_DUE_REMOVED, task),
                 Err(e) => failed(ERROR_TASK_DUE_DATE_FAILED, e),
             },
+            Operation::SetParent { task, parent } => match sync.set_task_parent(&task, parent).await {
+                Ok(()) if parent.is_some() => done(SUCCESS_TASK_MOVED_UNDER, task),
+                Ok(()) => done(SUCCESS_TASK_MOVED_TOP, task),
+                Err(e) => failed(ERROR_TASK_MOVE_FAILED, e),
+            },
             Operation::CreateTask {
                 content,
                 project,
                 description,
-            } => match sync.quick_add_task(&content, project, description.as_deref()).await {
+                parent,
+            } => match sync.quick_add_task(&content, project, description.as_deref(), parent).await {
                 Ok(outcome) => {
-                    let landed = if outcome.in_inbox {
+                    let landed = if parent.is_some() {
+                        SUCCESS_SUBTASK_CREATED
+                    } else if outcome.in_inbox {
                         SUCCESS_TASK_CREATED_INBOX
                     } else {
                         SUCCESS_TASK_CREATED_PROJECT

@@ -21,6 +21,7 @@ use crate::ui::components::dialogs::{
     filter_dialogs, label_dialogs, project_dialogs, scroll_behavior, system_dialogs, task_dialogs, text_edit,
 };
 use crate::ui::core::project_filter::{self, PickerEntry};
+use crate::ui::core::subtasks::{self, ParentChoice};
 
 /// The field of the task create and edit dialogs that has the keyboard. Tab moves forward,
 /// Shift+Tab back.
@@ -48,6 +49,13 @@ impl TaskField {
             TaskField::Project => TaskField::Description,
         }
     }
+}
+
+/// What a key did in a picker dialog.
+enum Picked {
+    Nothing,
+    Cancel,
+    Row(usize),
 }
 
 /// Modal dialog component that handles various user interactions.
@@ -168,38 +176,79 @@ impl DialogComponent {
         project_filter::picker_entries(&self.projects, &self.input_buffer)
     }
 
-    /// Keys for the project filter picker. Typing narrows the list, the arrows move the
-    /// cursor (`selected_project_index`), Enter applies the row under it.
-    fn handle_filter_key(&mut self, code: KeyCode) -> Action {
-        let count = self.filter_entries().len();
+    /// Rows of the "move under" picker for the text typed so far.
+    fn parent_entries(&self) -> Vec<ParentChoice> {
+        match &self.dialog_type {
+            Some(DialogType::ParentPicker {
+                task_uuid, candidates, ..
+            }) => subtasks::parent_choices(candidates, *task_uuid, &self.input_buffer),
+            _ => Vec::new(),
+        }
+    }
+
+    /// Keys shared by the picker dialogs. Typing narrows the list, the arrows move the
+    /// cursor (`selected_project_index`), Enter picks the row under it. `count` gives the
+    /// number of rows for the text typed so far. Returns the picked row on Enter.
+    fn handle_picker_key(&mut self, code: KeyCode, count: impl Fn(&Self) -> usize) -> Picked {
         match code {
-            KeyCode::Esc => Action::HideDialog,
-            KeyCode::Enter => {
-                let chosen = self
-                    .filter_entries()
-                    .get(self.selected_project_index)
-                    .and_then(|entry| entry.project);
-                self.clear_dialog();
-                Action::SetProjectFilter(chosen)
-            }
+            KeyCode::Esc => Picked::Cancel,
+            KeyCode::Enter => Picked::Row(self.selected_project_index),
             KeyCode::Up => {
                 self.selected_project_index = self.selected_project_index.saturating_sub(1);
-                Action::None
+                Picked::Nothing
             }
             KeyCode::Down => {
-                if self.selected_project_index + 1 < count {
+                if self.selected_project_index + 1 < count(self) {
                     self.selected_project_index += 1;
                 }
-                Action::None
+                Picked::Nothing
             }
             code => {
                 if self.handle_input_key(code) {
-                    // Jump to the first matching project rather than "All projects".
-                    let matches = self.filter_entries().len();
-                    self.selected_project_index = usize::from(!self.input_buffer.is_empty() && matches > 1);
+                    // Jump to the first match rather than the fixed first row.
+                    self.selected_project_index = usize::from(!self.input_buffer.is_empty() && count(self) > 1);
                 }
-                Action::None
+                Picked::Nothing
             }
+        }
+    }
+
+    /// Keys for the project filter picker.
+    fn handle_filter_key(&mut self, code: KeyCode) -> Action {
+        match self.handle_picker_key(code, |dialog| dialog.filter_entries().len()) {
+            Picked::Cancel => Action::HideDialog,
+            Picked::Row(index) => {
+                let chosen = self.filter_entries().get(index).and_then(|entry| entry.project);
+                self.clear_dialog();
+                Action::SetProjectFilter(chosen)
+            }
+            Picked::Nothing => Action::None,
+        }
+    }
+
+    /// Keys for the "move under" picker. Picking the parent the task already has does nothing.
+    fn handle_parent_key(&mut self, code: KeyCode) -> Action {
+        match self.handle_picker_key(code, |dialog| dialog.parent_entries().len()) {
+            Picked::Cancel => Action::HideDialog,
+            Picked::Row(index) => {
+                let Some(choice) = self.parent_entries().get(index).cloned() else {
+                    return Action::None;
+                };
+                let action = match &self.dialog_type {
+                    Some(DialogType::ParentPicker {
+                        task_uuid,
+                        current_parent,
+                        ..
+                    }) if choice.parent != *current_parent => Action::SetTaskParent {
+                        task_uuid: *task_uuid,
+                        parent: choice.parent,
+                    },
+                    _ => Action::HideDialog,
+                };
+                self.clear_dialog();
+                action
+            }
+            Picked::Nothing => Action::None,
         }
     }
 
@@ -223,7 +272,10 @@ impl DialogComponent {
 
     fn handle_submit(&mut self) -> Action {
         match &self.dialog_type {
-            Some(DialogType::TaskCreation { default_project_uuid }) => {
+            Some(DialogType::TaskCreation {
+                default_project_uuid,
+                parent,
+            }) => {
                 if !self.input_buffer.is_empty() {
                     // Determine the project UUID based on whether user explicitly selected via Tab
                     let project_uuid = if self.task_project_explicitly_selected {
@@ -252,6 +304,7 @@ impl DialogComponent {
                         content: self.input_buffer.clone(),
                         project_uuid,
                         description,
+                        parent_uuid: parent.as_ref().map(|(uuid, _)| *uuid),
                     };
                     self.clear_dialog();
                     action
@@ -417,15 +470,32 @@ impl DialogComponent {
     }
 
     fn render_task_creation_dialog(&mut self, f: &mut Frame, area: Rect) {
+        if let Some(DialogType::TaskCreation {
+            parent: Some((_, parent)),
+            ..
+        }) = &self.dialog_type
+        {
+            let parent = parent.clone();
+            self.render_task_dialog(f, area, parent, false, true);
+            return;
+        }
         let project_name = self
             .selected_task_project_uuid
             .and_then(|uuid| self.get_task_projects().into_iter().find(|p| p.uuid == uuid))
             .map_or_else(|| "None (Inbox)".to_string(), |p| p.name.clone());
-        self.render_task_dialog(f, area, project_name, false);
+        self.render_task_dialog(f, area, project_name, false, false);
     }
 
     /// Draws either task dialog and keeps the description width for moving up and down rows.
-    fn render_task_dialog(&mut self, f: &mut Frame, area: Rect, project_name: String, is_editing: bool) {
+    /// For a subtask, `project_name` holds the parent's title instead.
+    fn render_task_dialog(
+        &mut self,
+        f: &mut Frame,
+        area: Rect,
+        project_name: String,
+        is_editing: bool,
+        is_subtask: bool,
+    ) {
         let view = task_dialogs::TaskDialogView {
             content: &self.input_buffer,
             content_cursor: self.cursor_position,
@@ -434,6 +504,7 @@ impl DialogComponent {
             focus: self.task_field,
             project_name,
             is_editing,
+            is_subtask,
         };
         self.description_width = task_dialogs::render_task_dialog(f, area, &view, &self.theme);
     }
@@ -483,7 +554,7 @@ impl DialogComponent {
             .selected_task_project_uuid
             .and_then(|uuid| self.projects.iter().find(|p| p.uuid == uuid))
             .map_or_else(|| "None (Inbox)".to_string(), |p| p.name.clone());
-        self.render_task_dialog(f, area, project_name, true);
+        self.render_task_dialog(f, area, project_name, true, false);
     }
 
     fn render_delete_confirmation_dialog(&self, f: &mut Frame, area: Rect, item_type: &str) {
@@ -720,6 +791,8 @@ impl DialogComponent {
                 self.selected_task_project_uuid = Some(self.projects[next].uuid);
             }
             // Creating: the inbox is the "none" slot at the end of the cycle.
+            // A subtask lives in its parent's project, so there is nothing to choose.
+            Some(DialogType::TaskCreation { parent: Some(_), .. }) => {}
             Some(DialogType::TaskCreation { .. }) => {
                 let uuids: Vec<Uuid> = self.get_task_projects().iter().map(|project| project.uuid).collect();
                 self.task_project_explicitly_selected = true;
@@ -780,6 +853,7 @@ impl Component for DialogComponent {
                 _ => Action::None,
             },
             Some(DialogType::ProjectFilter { .. }) => self.handle_filter_key(key.code),
+            Some(DialogType::ParentPicker { .. }) => self.handle_parent_key(key.code),
             Some(DialogType::TaskCreation { .. } | DialogType::TaskEdit { .. }) => self.handle_task_dialog_key(key),
             // Input dialogs: task, project and label creation and editing.
             _ => match key.code {
@@ -826,7 +900,9 @@ impl Component for DialogComponent {
                         self.input_buffer = name.clone();
                         self.cursor_position = name.chars().count();
                     }
-                    DialogType::TaskCreation { default_project_uuid } => {
+                    DialogType::TaskCreation {
+                        default_project_uuid, ..
+                    } => {
                         self.input_buffer.clear();
                         self.cursor_position = 0;
                         self.description_buffer.clear();
@@ -866,6 +942,14 @@ impl Component for DialogComponent {
                 }
 
                 // Open the filter picker on the row of the filter already in place.
+                if let DialogType::ParentPicker { current_parent, .. } = &dialog_type {
+                    let current_parent = *current_parent;
+                    self.selected_project_index = self
+                        .parent_entries()
+                        .iter()
+                        .position(|choice| choice.parent == current_parent)
+                        .unwrap_or(0);
+                }
                 if let DialogType::ProjectFilter { current } = dialog_type {
                     self.selected_project_index = self
                         .filter_entries()
@@ -938,16 +1022,52 @@ impl Component for DialogComponent {
                     );
                 }
                 DialogType::ProjectFilter { current } => {
-                    filter_dialogs::render_project_filter_dialog(
-                        f,
-                        rect,
-                        &self.input_buffer,
-                        self.cursor_position,
-                        &self.filter_entries(),
-                        self.selected_project_index,
-                        current,
-                        &self.theme,
-                    );
+                    let view = filter_dialogs::PickerView {
+                        title: "Filter by Project",
+                        list_title: "Projects",
+                        action: " Apply",
+                        query: &self.input_buffer,
+                        cursor: self.cursor_position,
+                        rows: self
+                            .filter_entries()
+                            .into_iter()
+                            .map(|entry| filter_dialogs::PickerRow {
+                                label: match entry.project {
+                                    Some(_) => format!("#{}", entry.name),
+                                    None => entry.name,
+                                },
+                                depth: entry.depth,
+                                current: entry.project == current,
+                            })
+                            .collect(),
+                        selected: self.selected_project_index,
+                    };
+                    filter_dialogs::render_picker_dialog(f, rect, &view, &self.theme);
+                }
+                DialogType::ParentPicker {
+                    content,
+                    current_parent,
+                    ..
+                } => {
+                    let title = format!("Move '{content}' under…");
+                    let view = filter_dialogs::PickerView {
+                        title: &title,
+                        list_title: "Tasks in this project",
+                        action: " Move",
+                        query: &self.input_buffer,
+                        cursor: self.cursor_position,
+                        rows: self
+                            .parent_entries()
+                            .into_iter()
+                            .map(|choice| filter_dialogs::PickerRow {
+                                current: choice.parent == current_parent,
+                                label: choice.label,
+                                depth: choice.depth,
+                            })
+                            .collect(),
+                        selected: self.selected_project_index,
+                    };
+                    filter_dialogs::render_picker_dialog(f, rect, &view, &self.theme);
                 }
             }
         }

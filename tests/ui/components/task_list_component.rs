@@ -138,3 +138,36 @@ fn test_select_task_re_anchors_the_cursor_after_a_reload() {
     component.select_task(second_uuid);
     assert_eq!(component.get_selected_task().map(|task| task.uuid), Some(second_uuid));
 }
+
+/// A subtask due today under a parent with no date used to vanish from Today, because only
+/// top-level tasks started a row. It now shows on its own, naming its parent.
+#[test]
+fn test_subtask_without_its_parent_shows_in_today_with_the_parent_name() {
+    let project_uuid = Uuid::new_v4();
+    let parent_uuid = Uuid::new_v4();
+    let mut subtask = task_model(project_uuid, None, "Renew passport");
+    subtask.parent_uuid = Some(parent_uuid);
+    subtask.due_date = Some(chrono::Local::now().date_naive().format("%Y-%m-%d").to_string());
+
+    let mut component = TaskListComponent::new();
+    component.parent_names = [(parent_uuid, "Trip to Japan".to_string())].into();
+    component.update_data(
+        vec![subtask],
+        Vec::new(),
+        vec![project_model(project_uuid)],
+        Vec::new(),
+        SidebarSelection::Today,
+    );
+
+    let item = component
+        .items
+        .iter()
+        .find_map(|item| match item {
+            TaskListItemType::Task(task_item) => Some(task_item),
+            _ => None,
+        })
+        .expect("the subtask is listed");
+    assert_eq!(item.task.content, "Renew passport");
+    assert_eq!(item.depth, 0);
+    assert_eq!(item.parent_name.as_deref(), Some("Trip to Japan"));
+}

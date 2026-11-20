@@ -14,6 +14,9 @@ pub const SUCCESS_TASK_DELETED: &str = "✅ Task deleted";
 pub const SUCCESS_TASK_UPDATED: &str = "✅ Task updated";
 pub const SUCCESS_TASK_CREATED_PROJECT: &str = "✅ Task created in project";
 pub const SUCCESS_TASK_CREATED_INBOX: &str = "✅ Task created in inbox";
+pub const SUCCESS_SUBTASK_CREATED: &str = "✅ Subtask created";
+pub const SUCCESS_TASK_MOVED_UNDER: &str = "✅ Task moved under another task";
+pub const SUCCESS_TASK_MOVED_TOP: &str = "✅ Task moved to the top level";
 pub const SUCCESS_TASK_DUE_TODAY: &str = "✅ Task due date set to today";
 pub const SUCCESS_TASK_DUE_TOMORROW: &str = "✅ Task due date set to tomorrow";
 pub const SUCCESS_TASK_DUE_MONDAY: &str = "✅ Task due date set to next Monday";
@@ -35,6 +38,7 @@ pub const SUCCESS_SYNC_COMPLETED: &str = "✅ Synced";
 pub const ERROR_TASK_COMPLETION_FAILED: &str = "❌ Failed to complete task";
 pub const ERROR_TASK_DELETE_FAILED: &str = "❌ Failed to delete task";
 pub const ERROR_TASK_UPDATE_FAILED: &str = "❌ Failed to update task";
+pub const ERROR_TASK_MOVE_FAILED: &str = "❌ Failed to move task";
 pub const ERROR_TASK_CREATE_FAILED: &str = "❌ Failed to create task";
 pub const ERROR_TASK_DUE_DATE_FAILED: &str = "❌ Failed to set task due date";
 pub const ERROR_TASK_PRIORITY_FAILED: &str = "❌ Failed to update task priority";
@@ -53,6 +57,7 @@ pub const ERROR_TASK_RESTORE_FAILED: &str = "❌ Failed to restore task";
 // UI Messages
 pub const CONFIG_GENERATED: &str = "✅ Generated default configuration file";
 pub const UI_NO_TASK_SELECTED_DUE_DATE: &str = "No task selected to set due date";
+pub const UI_NO_TASK_SELECTED: &str = "No task selected";
 pub const UI_LOADING_DATA: &str = "Loading data";
 
 /// How long a success toast lingers before it fades on its own.

@@ -12,3 +12,6 @@ mod task_manager;
 
 #[path = "core/project_filter.rs"]
 mod project_filter;
+
+#[path = "core/subtasks.rs"]
+mod subtasks;

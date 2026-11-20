@@ -50,6 +50,15 @@ pub enum Action {
         project_uuid: Option<Uuid>,
         /// `None` when the description field was left empty.
         description: Option<String>,
+        /// Set when the new task is a subtask of this task.
+        parent_uuid: Option<Uuid>,
+    },
+    /// Open the "move under" picker for a task.
+    OpenParentPicker(Uuid),
+    /// Make a task a subtask of `parent`, or move it to the top level with `None`.
+    SetTaskParent {
+        task_uuid: Uuid,
+        parent: Option<Uuid>,
     },
     EditTask {
         task_uuid: Uuid,
@@ -93,6 +102,8 @@ pub enum Action {
         labels: Vec<crate::entities::label::Model>,
         sections: Vec<crate::entities::section::Model>,
         tasks: Vec<crate::entities::task::Model>,
+        /// Titles of parents that subtasks in `tasks` point at but that are not loaded.
+        parent_names: std::collections::HashMap<Uuid, String>,
     },
     SearchTasks(String), // Query for task search
     SearchResultsLoaded {
@@ -122,6 +133,8 @@ pub enum Action {
 pub enum DialogType {
     TaskCreation {
         default_project_uuid: Option<Uuid>,
+        /// Set when creating a subtask: the parent's UUID and title.
+        parent: Option<(Uuid, String)>,
     },
     TaskEdit {
         task_uuid: Uuid,
@@ -154,6 +167,13 @@ pub enum DialogType {
         content: String,
         /// The task repeats, and a plain date would replace its repeat pattern.
         is_recurring: bool,
+    },
+    /// Pick the task `task_uuid` moves under, among the open tasks of its project.
+    ParentPicker {
+        task_uuid: Uuid,
+        content: String,
+        current_parent: Option<Uuid>,
+        candidates: Vec<crate::entities::task::Model>,
     },
     /// Pick the project the date and label views are narrowed to.
     ProjectFilter {
