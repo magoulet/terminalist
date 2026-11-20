@@ -42,8 +42,9 @@ fn status_error(call: &str, status: u16, body: &str) -> BackendError {
 /// Todoist backend implementation.
 pub struct TodoistBackend {
     wrapper: TodoistWrapper,
-    // `todoist_api` has no Quick Add call, and its move call only takes a project, so those
-    // two endpoints are called directly.
+    // `todoist_api` has no Quick Add call, its move call only takes a project, and its
+    // completed-tasks call expects the wrong response shape, so those endpoints are called
+    // directly.
     http: reqwest::Client,
     api_token: String,
 }
@@ -93,6 +94,35 @@ impl TodoistBackend {
         Ok(Self::task_to_backend(&task))
     }
 
+    /// GETs an API v1 endpoint and parses the JSON answer, for the calls `todoist_api` does
+    /// not cover. `call` names the call in error messages.
+    async fn get_json<T: serde::de::DeserializeOwned>(
+        &self,
+        call: &str,
+        path: &str,
+        query: &[(&str, String)],
+    ) -> Result<T, BackendError> {
+        let response = self
+            .http
+            .get(format!("{API_BASE}/{path}"))
+            .bearer_auth(&self.api_token)
+            .query(query)
+            .send()
+            .await
+            .map_err(|e| BackendError::Network(format!("{call} request failed: {e}")))?;
+
+        let status = response.status();
+        let text = response
+            .text()
+            .await
+            .map_err(|e| BackendError::Network(format!("{call} response could not be read: {e}")))?;
+        if !status.is_success() {
+            return Err(status_error(call, status.as_u16(), &text));
+        }
+        serde_json::from_str(&text)
+            .map_err(|e| BackendError::InvalidData(format!("{call} response could not be parsed: {e}")))
+    }
+
     // Helper: Transform Todoist API project → Backend project
     fn project_to_backend(api_project: &todoist_api::Project) -> BackendProject {
         BackendProject {
@@ -130,6 +160,7 @@ impl TodoistBackend {
             duration: api_task.duration.as_ref().map(|d| format!("{} {}", d.amount, d.unit)),
             is_completed: false, // Fetch operations don't include completed tasks
             labels: api_task.labels.clone(),
+            completed_at: api_task.completed_at.clone(),
         }
     }
 
@@ -234,6 +265,41 @@ impl Backend for TodoistBackend {
         }
 
         Ok(all_sections)
+    }
+
+    async fn fetch_completed_tasks(&self, since: &str, until: &str) -> Result<Vec<BackendTask>, BackendError> {
+        /// One page of `tasks/completed/by_completion_date`. The list is under `items`,
+        /// where `todoist_api`'s paginated type looks for `results`.
+        #[derive(serde::Deserialize)]
+        struct Page {
+            items: Vec<todoist_api::Task>,
+            next_cursor: Option<String>,
+        }
+
+        let mut tasks = Vec::new();
+        let mut cursor: Option<String> = None;
+        loop {
+            let mut query = vec![
+                ("since", since.to_string()),
+                ("until", until.to_string()),
+                ("limit", "50".to_string()),
+            ];
+            if let Some(cursor) = &cursor {
+                query.push(("cursor", cursor.clone()));
+            }
+            let page: Page = self
+                .get_json("Completed tasks", "tasks/completed/by_completion_date", &query)
+                .await?;
+            tasks.extend(page.items.iter().map(|task| {
+                let mut task = Self::task_to_backend(task);
+                task.is_completed = true;
+                task
+            }));
+            match page.next_cursor {
+                Some(next) if !next.is_empty() => cursor = Some(next),
+                _ => return Ok(tasks),
+            }
+        }
     }
 
     async fn create_project(&self, args: CreateProjectArgs) -> Result<BackendProject, BackendError> {
@@ -413,6 +479,24 @@ mod tests {
         assert_eq!(backend.project_remote_id, "p1");
         assert_eq!(backend.due_date.as_deref(), Some("2026-11-19"));
         assert_eq!(backend.labels, vec!["phone".to_string()]);
+    }
+
+    #[test]
+    fn completed_page_parses_items_and_completion_time() {
+        #[derive(serde::Deserialize)]
+        struct Page {
+            items: Vec<todoist_api::Task>,
+            next_cursor: Option<String>,
+        }
+        let mut item: serde_json::Value = serde_json::from_str(QUICK_ADD_BODY).expect("body parses");
+        item["checked"] = serde_json::json!(true);
+        item["completed_at"] = serde_json::json!("2026-11-19T16:42:00Z");
+        let body = serde_json::json!({ "items": [item], "next_cursor": null }).to_string();
+
+        let page: Page = serde_json::from_str(&body).expect("completed page parses");
+        assert!(page.next_cursor.is_none());
+        let task = TodoistBackend::task_to_backend(&page.items[0]);
+        assert_eq!(task.completed_at.as_deref(), Some("2026-11-19T16:42:00Z"));
     }
 
     #[test]

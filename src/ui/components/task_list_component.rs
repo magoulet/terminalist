@@ -42,6 +42,9 @@ pub struct TaskListComponent {
     pub filter_name: Option<String>,
     /// Titles of parents that are not in the view, for subtasks shown on their own.
     pub parent_names: std::collections::HashMap<Uuid, String>,
+    /// The day the Completed view shows, and when each of its tasks was completed.
+    pub completed_day: chrono::NaiveDate,
+    pub completed_times: std::collections::HashMap<Uuid, String>,
     /// A first `g` was pressed; a second one jumps to the top, as in Vim.
     pending_g: bool,
     pub items: Vec<TaskListItemType>,
@@ -70,6 +73,8 @@ impl TaskListComponent {
             filter_name: None,
             parent_names: std::collections::HashMap::new(),
             pending_g: false,
+            completed_day: chrono::Local::now().date_naive(),
+            completed_times: std::collections::HashMap::new(),
             items: Vec::new(),
             tasks: Vec::new(),
             selected_index: 0,
@@ -124,6 +129,7 @@ impl TaskListComponent {
             SidebarSelection::Today => self.build_today_items(),
             SidebarSelection::Tomorrow => self.build_tomorrow_items(),
             SidebarSelection::Upcoming => self.build_upcoming_items(),
+            SidebarSelection::Completed => self.build_completed_items(),
             SidebarSelection::Project(uuid) => {
                 let uuid = *uuid;
                 self.build_project_items(&uuid);
@@ -278,6 +284,21 @@ impl TaskListComponent {
         }
     }
 
+    /// Build items for the Completed view: one day's completed tasks, most recent first.
+    fn build_completed_items(&mut self) {
+        use crate::ui::components::task_list_item_component::HeaderItem;
+
+        if self.tasks.is_empty() {
+            return;
+        }
+        let header = format!("✓ Completed · {}", self.completed_day.format("%A, %b %d"));
+        self.items.push(TaskListItemType::Header(HeaderItem::new(header, 0)));
+        let roots: Vec<task::Model> = self.root_tasks().into_iter().cloned().collect();
+        for task in roots {
+            self.add_task_and_children_to_items(task, 0);
+        }
+    }
+
     /// Build items for Project view (with section headers)
     fn build_project_items(&mut self, project_id: &Uuid) {
         use crate::ui::components::task_list_item_component::{HeaderItem, SeparatorItem};
@@ -364,6 +385,7 @@ impl TaskListComponent {
         // Create and add the task item
         // TODO: Load task-label relationships from database
         let mut task_item = TaskItem::new(task.clone(), depth, child_count, project_name, Vec::new());
+        task_item.completed_at = self.completed_times.get(&task.uuid).cloned();
         // A subtask on a row of its own names its parent, which is not in the view.
         if depth == 0 {
             // A parent missing from the cache too (completed elsewhere, say) still gets a marker.
@@ -600,6 +622,19 @@ impl Component for TaskListComponent {
                 self.next_task();
                 Action::None
             }
+            // The Completed view lists tasks the cache doesn't hold: Space reopens them, and the
+            // keys that edit a task do nothing there.
+            KeyCode::Enter | KeyCode::Char(' ') if self.sidebar_selection == SidebarSelection::Completed => {
+                match self.get_selected_task() {
+                    Some(task) => Action::ReopenCompletedTask(task.uuid),
+                    None => Action::None,
+                }
+            }
+            KeyCode::Char('e' | 'd' | 'p') | KeyCode::Delete
+                if self.sidebar_selection == SidebarSelection::Completed =>
+            {
+                Action::None
+            }
             KeyCode::Enter | KeyCode::Char(' ') => {
                 if let Some(task) = self.get_selected_task() {
                     // Smart toggle: restore if deleted/completed, otherwise complete
@@ -670,6 +705,9 @@ impl Component for TaskListComponent {
         let tasks_list = if self.items.is_empty() {
             // Show contextual empty state message
             let empty_message = match &self.sidebar_selection {
+                SidebarSelection::Completed => {
+                    "Nothing completed on this day. Press '[' or ']' to change the day, or '=' to pick one."
+                }
                 _ if self.filter_name.is_some() => {
                     "No tasks from this project in this view. Press 'f' to change the project filter."
                 }

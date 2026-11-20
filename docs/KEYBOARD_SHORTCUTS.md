@@ -36,6 +36,8 @@ This document lists all available keyboard shortcuts and TUI controls.
 
 - **`b`** Toggle sidebar visibility
 - **`/`** Open task search dialog (search across all tasks)
+- **`=`** Open the Completed view on a day you type: `yesterday`, `3 days ago`, `monday`, `nov 2` or `2026-11-02`.
+- **`[`** / **`]`** In the Completed view, show the previous or next day (never past today). `Space` reopens the selected task. The other task keys do nothing there, since completed tasks can't be edited.
 - **`f`** Filter the Today, Tomorrow, Upcoming and label views to one project and its subprojects. Type to narrow the list, `↑/↓` to move, `Enter` to apply. Pick "All projects" to clear it. The filter stays on as you switch views, the task list title shows it, and project views ignore it.
 - **`r`** Force sync with Todoist
 - **`!`** Open the log dialog
@@ -67,7 +69,7 @@ This document lists all available keyboard shortcuts and TUI controls.
 - **Main Area**: Sidebar (views, projects, labels) | Tasks list (main area) - side by side
 
 ### Components
-- **Sidebar (Left)**: Today, Tomorrow and Upcoming views, then a hierarchical display of all Todoist projects and labels
+- **Sidebar (Left)**: Today, Tomorrow, Upcoming and Completed views, then a hierarchical display of all Todoist projects and labels
   - Configurable width via `sidebar_width` in config
   - Hidden and shown with `b`, and `sidebar_visible` sets the state at startup
   - Long project names are automatically truncated with ellipsis (…)
@@ -83,6 +85,7 @@ Tasks are displayed with:
 - **Status Icons**: ☐ (pending), ☒ (completed), ✗ (deleted)
 - **Priority Flags**: a coloured flag before the content - ⚑ red (P1, urgent), ⚑ orange (P2, high), ⚑ blue (P3, medium), ⚐ white (P4, normal).
 - **Label Badges**: Colored badges showing task labels
+- **Completed view**: The tasks completed on one day (today when you open it), most recent first, each with its completion time. They are fetched from Todoist when the view opens, so it needs a connection. The `f` project filter applies, so `f` then `#Work`, Completed and `[` shows what was done in Work yesterday. How far back Todoist returns completed tasks may depend on your plan.
 - **Subtasks**: Indented under their parent. A subtask whose parent isn't in the view (a subtask due today under a parent with no date, say) is listed on its own, followed by `↳` and its parent's name.
 - **Task Content**: Truncated to fit the display width
 - **Completion Visual**: Completed tasks appear dimmed

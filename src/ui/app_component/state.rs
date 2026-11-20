@@ -16,6 +16,10 @@ pub struct AppState {
     pub project_filter: Option<Uuid>,
     /// Titles of parents that loaded subtasks point at but that the view did not load.
     pub parent_names: std::collections::HashMap<Uuid, String>,
+    /// The day the Completed view shows.
+    pub completed_day: chrono::NaiveDate,
+    /// Completion times (RFC 3339) of the tasks in the Completed view.
+    pub completed_times: std::collections::HashMap<Uuid, String>,
     pub loading: bool,
     pub show_help: bool,
     /// didnt we just got rid of custom scrolling ?
@@ -81,7 +85,10 @@ impl AppState {
         match self.sidebar_selection {
             SidebarSelection::Project(uuid) => self.projects.iter().any(|project| project.uuid == uuid),
             SidebarSelection::Label(uuid) => self.labels.iter().any(|label| label.uuid == uuid),
-            SidebarSelection::Today | SidebarSelection::Tomorrow | SidebarSelection::Upcoming => true,
+            SidebarSelection::Today
+            | SidebarSelection::Tomorrow
+            | SidebarSelection::Upcoming
+            | SidebarSelection::Completed => true,
         }
     }
 }

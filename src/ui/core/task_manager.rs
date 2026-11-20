@@ -125,6 +125,7 @@ impl TaskManager {
         sync_service: SyncService,
         sidebar_selection: SidebarSelection,
         kind: LoadKind,
+        completed_day: chrono::NaiveDate,
     ) -> TaskId {
         let task_id = self.next_task_id;
         self.next_task_id += 1;
@@ -139,7 +140,28 @@ impl TaskManager {
             ) {
                 (Ok(projects), Ok(labels), Ok(sections)) => {
                     // Get tasks based on sidebar selection
+                    let mut completed_times = std::collections::HashMap::new();
                     let tasks = match sidebar_selection {
+                        // Fetched from the backend: the cache only holds active tasks.
+                        SidebarSelection::Completed => match sync_service.completed_on(completed_day).await {
+                            Ok(completed) => completed
+                                .into_iter()
+                                .map(|entry| {
+                                    if let Some(at) = entry.completed_at {
+                                        completed_times.insert(entry.task.uuid, at);
+                                    }
+                                    entry.task
+                                })
+                                .collect(),
+                            Err(e) => {
+                                let _ = action_sender.send(Action::ShowDialog(
+                                    crate::ui::core::actions::DialogType::Error(format!(
+                                        "Failed to load completed tasks: {e}"
+                                    )),
+                                ));
+                                Vec::new()
+                            }
+                        },
                         SidebarSelection::Today => sync_service.get_tasks_for_today().await.unwrap_or_default(),
                         SidebarSelection::Tomorrow => sync_service.get_tasks_for_tomorrow().await.unwrap_or_default(),
                         SidebarSelection::Upcoming => sync_service.get_tasks_for_upcoming().await.unwrap_or_default(),
@@ -161,6 +183,7 @@ impl TaskManager {
                         sections,
                         tasks,
                         parent_names,
+                        completed_times,
                     });
                 }
                 (Err(e), _, _) | (_, Err(e), _) | (_, _, Err(e)) => {

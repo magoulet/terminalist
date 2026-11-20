@@ -65,6 +65,7 @@ impl AppComponent {
 
         let state = AppState {
             loading: true,
+            completed_day: chrono::Local::now().date_naive(),
             ..Default::default()
         };
 
@@ -170,6 +171,8 @@ impl AppComponent {
         self.task_list.update_theme(self.config.theme.clone());
         self.task_list.filter_name = self.state.project_filter_name();
         self.task_list.parent_names = self.state.parent_names.clone();
+        self.task_list.completed_day = self.state.completed_day;
+        self.task_list.completed_times = self.state.completed_times.clone();
         self.task_list.update_data(
             self.state.visible_tasks(),
             self.state.sections.clone(),
@@ -211,8 +214,12 @@ impl AppComponent {
     fn spawn(&mut self, operation: Operation) {
         info!("Background: Spawning task operation '{}'", operation.describe());
         // Deleting the project being viewed would leave the sidebar pointing at nothing.
-        let on_success = matches!(operation, Operation::DeleteProject(_))
-            .then_some(Action::NavigateToSidebar(SidebarSelection::Today));
+        let on_success = match operation {
+            Operation::DeleteProject(_) => Some(Action::NavigateToSidebar(SidebarSelection::Today)),
+            // A reopened task isn't in the cache; a sync brings it back as an active task.
+            Operation::ReopenRemote { .. } => Some(Action::StartSync),
+            _ => None,
+        };
         let sync_service = self.sync_service.clone();
         let _task_id = self.task_manager.spawn_task_operation(
             move || async move { operation.run(sync_service).await.map_err(anyhow::Error::msg) },
@@ -265,9 +272,12 @@ impl AppComponent {
     /// Schedule a background task to reload the current view. `kind` travels with the load
     /// and decides what happens to the cursor when it lands.
     fn schedule_data_load(&mut self, kind: LoadKind) {
-        let _task_id = self
-            .task_manager
-            .spawn_data_load(self.sync_service.clone(), self.state.sidebar_selection, kind);
+        let _task_id = self.task_manager.spawn_data_load(
+            self.sync_service.clone(),
+            self.state.sidebar_selection,
+            kind,
+            self.state.completed_day,
+        );
     }
 
     /// Process background actions from task manager

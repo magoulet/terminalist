@@ -4,7 +4,7 @@
 //! enabling foldable account folders and hierarchical display of projects and labels.
 
 use crate::entities::{label, project};
-use crate::icons::{LABEL, PROJECT_FAVORITE, PROJECT_REGULAR, TODAY, TOMORROW, UPCOMING};
+use crate::icons::{COMPLETED, LABEL, PROJECT_FAVORITE, PROJECT_REGULAR, TODAY, TOMORROW, UPCOMING};
 use crate::theme::Theme;
 use crate::ui::core::SidebarSelection;
 use ratatui::{
@@ -70,6 +70,7 @@ impl SidebarItem for SidebarItemType {
                     SidebarSelection::Today => TODAY,
                     SidebarSelection::Tomorrow => TOMORROW,
                     SidebarSelection::Upcoming => UPCOMING,
+                    SidebarSelection::Completed => COMPLETED,
                     _ => "",
                 };
 

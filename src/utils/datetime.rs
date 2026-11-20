@@ -177,3 +177,90 @@ pub fn split_todoist_due(date: &str, datetime: Option<&str>) -> (String, Option<
     };
     (day, Some(full.to_string()))
 }
+
+/// The start of `day` and of the day after, in local time, as RFC 3339 times in UTC. This is
+/// the range Todoist's completed-tasks call takes for "everything completed on `day`".
+#[must_use]
+pub fn local_day_bounds_utc(day: NaiveDate) -> (String, String) {
+    let to_utc = |date: NaiveDate| {
+        let midnight = date.and_hms_opt(0, 0, 0).expect("midnight exists");
+        Local
+            .from_local_datetime(&midnight)
+            .earliest()
+            .unwrap_or_else(|| Local.from_utc_datetime(&midnight))
+            .with_timezone(&chrono::Utc)
+            .format("%Y-%m-%dT%H:%M:%SZ")
+            .to_string()
+    };
+    (to_utc(day), to_utc(day + Duration::days(1)))
+}
+
+/// Reads a day typed by the user, relative to `today`: "today", "yesterday", "tomorrow",
+/// "3 days ago", "-3", a weekday ("monday", "mon": the latest one on or before today),
+/// "2026-11-02", or a month and day ("nov 2", "2 november": the latest one on or before
+/// today). Returns `None` for anything else.
+#[must_use]
+pub fn parse_day(input: &str, today: NaiveDate) -> Option<NaiveDate> {
+    let text = input.trim().to_lowercase();
+    let words: Vec<&str> = text.split_whitespace().collect();
+
+    match words.as_slice() {
+        ["today"] => return Some(today),
+        ["yesterday"] => return Some(today - Duration::days(1)),
+        ["tomorrow"] => return Some(today + Duration::days(1)),
+        [n, "day" | "days", "ago"] => return n.parse::<i64>().ok().map(|n| today - Duration::days(n)),
+        [n] if n.starts_with('-') => return n[1..].parse::<i64>().ok().map(|n| today - Duration::days(n)),
+        _ => {}
+    }
+
+    if let Ok(date) = NaiveDate::parse_from_str(&text, TODOIST_DATE_FORMAT) {
+        return Some(date);
+    }
+
+    if let [word] = words.as_slice() {
+        if let Ok(weekday) = word.parse::<Weekday>() {
+            let back = (today.weekday().num_days_from_monday() + 7 - weekday.num_days_from_monday()) % 7;
+            return Some(today - Duration::days(i64::from(back)));
+        }
+    }
+
+    // "nov 2" or "2 nov", in the latest year that doesn't put it after today.
+    let (month, day) = match words.as_slice() {
+        [a, b] => match (month_number(a), b.parse::<u32>(), month_number(b), a.parse::<u32>()) {
+            (Some(month), Ok(day), _, _) | (_, _, Some(month), Ok(day)) => (month, day),
+            _ => return None,
+        },
+        _ => return None,
+    };
+    let this_year = NaiveDate::from_ymd_opt(today.year(), month, day)?;
+    if this_year <= today {
+        Some(this_year)
+    } else {
+        NaiveDate::from_ymd_opt(today.year() - 1, month, day)
+    }
+}
+
+/// Month number for an English month name or its first three letters.
+fn month_number(word: &str) -> Option<u32> {
+    const MONTHS: [&str; 12] = [
+        "january",
+        "february",
+        "march",
+        "april",
+        "may",
+        "june",
+        "july",
+        "august",
+        "september",
+        "october",
+        "november",
+        "december",
+    ];
+    if word.len() < 3 {
+        return None;
+    }
+    MONTHS
+        .iter()
+        .position(|month| month.starts_with(word))
+        .map(|index| index as u32 + 1)
+}

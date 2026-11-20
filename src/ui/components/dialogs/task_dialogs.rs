@@ -201,3 +201,33 @@ pub fn render_reschedule_dialog(
 
     f.set_cursor_position((chunks[2].x + 1 + cursor as u16, chunks[2].y + 1));
 }
+
+/// The "go to day" box of the Completed view: one line of day text, read locally.
+pub fn render_go_to_day_dialog(f: &mut Frame, area: Rect, input: &str, cursor: usize, theme: &Theme) {
+    let dialog_area = LayoutManager::centered_rect_lines(60, 8, area);
+    f.render_widget(Clear, dialog_area);
+
+    let main_block = common::create_dialog_block("Show Completed Tasks", theme.info);
+    let inner_area = main_block.inner(dialog_area);
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .margin(1)
+        .constraints([
+            Constraint::Length(3), // Day input
+            Constraint::Length(1), // Instructions
+        ])
+        .split(inner_area);
+
+    let input_paragraph =
+        common::create_input_paragraph(input, cursor, "Day (yesterday, 3 days ago, monday, nov 2)", theme);
+    let instructions = [
+        ("Enter", theme.success, " Show"),
+        shortcuts::separator(theme),
+        shortcuts::esc_cancel(theme),
+    ];
+
+    f.render_widget(main_block, dialog_area);
+    f.render_widget(input_paragraph, chunks[0]);
+    f.render_widget(common::create_instructions_paragraph(&instructions, theme), chunks[1]);
+    f.set_cursor_position((chunks[0].x + 1 + cursor as u16, chunks[0].y + 1));
+}

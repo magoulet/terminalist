@@ -84,6 +84,7 @@ impl AppComponent {
                     SidebarSelection::Today => "Today".to_string(),
                     SidebarSelection::Tomorrow => "Tomorrow".to_string(),
                     SidebarSelection::Upcoming => "Upcoming".to_string(),
+                    SidebarSelection::Completed => format!("Completed on {}", self.state.completed_day),
                     SidebarSelection::Project(uuid) => match self.state.projects.iter().find(|p| p.uuid == *uuid) {
                         Some(project) => format!("Project {uuid} '{}'", project.name),
                         None => format!("Project {uuid} [unknown]"),
@@ -131,6 +132,25 @@ impl AppComponent {
                     description,
                     parent: parent_uuid,
                 });
+                Action::None
+            }
+            Action::ShowCompletedDay(day) => {
+                info!("Navigation: Completed view for {day}");
+                self.is_initial_sync = false;
+                self.state.completed_day = day;
+                self.state.sidebar_selection = SidebarSelection::Completed;
+                self.schedule_data_load(LoadKind::User);
+                Action::None
+            }
+            Action::ReopenCompletedTask(task_uuid) => {
+                if let Some(task) = self.state.tasks.iter().find(|task| task.uuid == task_uuid) {
+                    info!("Task: Reopening completed task '{}'", task.content);
+                    let operation = Operation::ReopenRemote {
+                        remote_id: task.remote_id.clone(),
+                        content: task.content.clone(),
+                    };
+                    self.spawn(operation);
+                }
                 Action::None
             }
             Action::OpenParentPicker(task_uuid) => {
@@ -280,6 +300,7 @@ impl AppComponent {
                 sections,
                 tasks,
                 parent_names,
+                completed_times,
             } => {
                 info!(
                     "Data: Loaded {} projects, {} labels, {} sections, {} tasks ({:?})",
@@ -298,6 +319,7 @@ impl AppComponent {
 
                 self.state.update_data(projects, labels, sections, tasks);
                 self.state.parent_names = parent_names;
+                self.state.completed_times = completed_times;
                 if self.state.drop_stale_project_filter() {
                     info!("Filter: filtered project no longer exists, clearing the filter");
                 }

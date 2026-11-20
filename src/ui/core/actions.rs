@@ -13,6 +13,9 @@ pub enum SidebarSelection {
     Today, // Today view (special view)
     Tomorrow, // Tomorrow view (special view)
     Upcoming, // Upcoming view (tasks with future due dates)
+    /// Tasks completed on one day. The day itself is `AppState::completed_day`, so moving
+    /// between days keeps the same sidebar entry selected.
+    Completed,
     Label(Uuid),
     Project(Uuid),
 }
@@ -53,6 +56,10 @@ pub enum Action {
         /// Set when the new task is a subtask of this task.
         parent_uuid: Option<Uuid>,
     },
+    /// Show the Completed view for a day.
+    ShowCompletedDay(chrono::NaiveDate),
+    /// Reopen a task listed in the Completed view.
+    ReopenCompletedTask(Uuid),
     /// Open the "move under" picker for a task.
     OpenParentPicker(Uuid),
     /// Make a task a subtask of `parent`, or move it to the top level with `None`.
@@ -104,6 +111,8 @@ pub enum Action {
         tasks: Vec<crate::entities::task::Model>,
         /// Titles of parents that subtasks in `tasks` point at but that are not loaded.
         parent_names: std::collections::HashMap<Uuid, String>,
+        /// Completion times (RFC 3339) of the tasks in the Completed view.
+        completed_times: std::collections::HashMap<Uuid, String>,
     },
     SearchTasks(String), // Query for task search
     SearchResultsLoaded {
@@ -161,6 +170,8 @@ pub enum DialogType {
     Help,
     Logs,
     TaskSearch,
+    /// Type the day the Completed view should show.
+    GoToCompletedDay,
     /// Type a new due date for a task.
     Reschedule {
         task_uuid: Uuid,

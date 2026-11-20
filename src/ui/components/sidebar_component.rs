@@ -99,6 +99,10 @@ impl SidebarComponent {
             name: "Upcoming".to_string(),
             selection: SidebarSelection::Upcoming,
         });
+        self.items.push(SidebarItemType::SpecialView {
+            name: "Completed".to_string(),
+            selection: SidebarSelection::Completed,
+        });
 
         // Add labels
         for label in &self.labels {

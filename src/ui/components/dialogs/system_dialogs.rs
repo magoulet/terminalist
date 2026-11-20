@@ -236,6 +236,10 @@ SYNC & DATA
 -----------
 r           Force sync with Todoist
 /           Search across all tasks
+=           Show the tasks completed on a day (yesterday, monday,
+            nov 2...)
+[ / ]       In the Completed view, the previous / next day. Space
+            reopens a task
 f           Show only one project (and its subprojects) in the
             Today, Tomorrow, Upcoming and label views
 !           Open the log dialog

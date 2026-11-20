@@ -552,6 +552,7 @@ mod tests {
             duration: None,
             is_completed: false,
             labels: Vec::new(),
+            completed_at: None,
         }
     }
 

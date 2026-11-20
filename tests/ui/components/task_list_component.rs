@@ -221,3 +221,46 @@ fn test_vim_jumps_to_the_first_and_last_task() {
     press(&mut component, 'g');
     assert_eq!(selected_content(&component), "three");
 }
+
+/// The Completed view lists the day's tasks under a dated header with their completion time,
+/// Space reopens one, and the editing keys do nothing.
+#[test]
+fn test_completed_view_shows_times_and_reopens_with_space() {
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use terminalist::ui::core::actions::Action;
+    use terminalist::ui::core::Component;
+
+    let project_uuid = Uuid::new_v4();
+    let mut done = task_model(project_uuid, None, "Ship the draft");
+    done.is_completed = true;
+    let mut component = TaskListComponent::new();
+    component.completed_day = chrono::NaiveDate::from_ymd_opt(2026, 11, 19).unwrap();
+    component.completed_times = [(done.uuid, "2026-11-19T16:42:00Z".to_string())].into();
+    component.update_data(
+        vec![done.clone()],
+        Vec::new(),
+        vec![project_model(project_uuid)],
+        Vec::new(),
+        SidebarSelection::Completed,
+    );
+
+    let header = component.items.iter().find_map(|item| match item {
+        TaskListItemType::Header(header) => Some(header.text.clone()),
+        _ => None,
+    });
+    assert_eq!(header.as_deref(), Some("✓ Completed · Thursday, Nov 19"));
+    let item = component
+        .items
+        .iter()
+        .find_map(|item| match item {
+            TaskListItemType::Task(task_item) => Some(task_item),
+            _ => None,
+        })
+        .expect("the completed task is listed");
+    assert_eq!(item.completed_at.as_deref(), Some("2026-11-19T16:42:00Z"));
+
+    let key = |c| KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE);
+    assert!(matches!(component.handle_key_events(key(' ')), Action::ReopenCompletedTask(uuid) if uuid == done.uuid));
+    assert!(matches!(component.handle_key_events(key('e')), Action::None));
+    assert!(matches!(component.handle_key_events(key('d')), Action::None));
+}

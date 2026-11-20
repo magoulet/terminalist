@@ -72,6 +72,11 @@ pub enum Operation {
         task: Uuid,
         parent: Option<Uuid>,
     },
+    /// Reopen a task by its backend ID, for one listed in the Completed view.
+    ReopenRemote {
+        remote_id: String,
+        content: String,
+    },
     EditTask {
         task: Uuid,
         content: String,
@@ -109,6 +114,7 @@ impl Operation {
             Operation::CyclePriority { task, priority } => format!("Cycle priority: {task} -> P{priority}"),
             Operation::SetDue { task, when } => format!("Set task due {when:?}: {task}"),
             Operation::Reschedule { task, due } => format!("Reschedule task to '{due}': {task}"),
+            Operation::ReopenRemote { remote_id, .. } => format!("Reopen completed task {remote_id}"),
             Operation::SetParent { task, parent } => match parent {
                 Some(parent) => format!("Move task under {parent}: {task}"),
                 None => format!("Move task to the top level: {task}"),
@@ -172,6 +178,10 @@ impl Operation {
                 Ok(Some(date)) => Ok(format!("{SUCCESS_TASK_RESCHEDULED} {date}: {task}")),
                 Ok(None) => done(SUCCESS_TASK_DUE_REMOVED, task),
                 Err(e) => failed(ERROR_TASK_DUE_DATE_FAILED, e),
+            },
+            Operation::ReopenRemote { remote_id, content } => match sync.reopen_remote_task(&remote_id).await {
+                Ok(()) => done(SUCCESS_TASK_RESTORED, content),
+                Err(e) => failed(ERROR_TASK_RESTORE_FAILED, e),
             },
             Operation::SetParent { task, parent } => match sync.set_task_parent(&task, parent).await {
                 Ok(()) if parent.is_some() => done(SUCCESS_TASK_MOVED_UNDER, task),

@@ -27,6 +27,7 @@ impl AppComponent {
             SidebarSelection::Today => Selected::View("Today"),
             SidebarSelection::Tomorrow => Selected::View("Tomorrow"),
             SidebarSelection::Upcoming => Selected::View("Upcoming"),
+            SidebarSelection::Completed => Selected::View("Completed"),
             SidebarSelection::Project(uuid) => match self.state.projects.iter().find(|p| p.uuid == *uuid) {
                 Some(project) => Selected::Project(project),
                 None => Selected::Missing("project"),
@@ -50,7 +51,19 @@ impl AppComponent {
             }
         }
 
+        let completed_view = self.state.sidebar_selection == SidebarSelection::Completed;
+        let today = chrono::Local::now().date_naive();
         match key.code {
+            // The Completed view: step a day back or forward, never past today.
+            KeyCode::Char('[') if completed_view => {
+                Action::ShowCompletedDay(self.state.completed_day - chrono::Duration::days(1))
+            }
+            KeyCode::Char(']') if completed_view => {
+                Action::ShowCompletedDay((self.state.completed_day + chrono::Duration::days(1)).min(today))
+            }
+            KeyCode::Char('=') => Action::ShowDialog(DialogType::GoToCompletedDay),
+            // Completed tasks aren't in the cache, so the keys that change a task skip them.
+            KeyCode::Char('t' | 'T' | 'w' | 'W' | 's' | 'c' | 'm') if completed_view => Action::None,
             KeyCode::Char('b') => {
                 info!("Global key: 'b' - toggling sidebar visibility");
                 Action::ToggleSidebar

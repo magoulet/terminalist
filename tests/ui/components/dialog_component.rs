@@ -299,3 +299,20 @@ fn test_parent_picker_top_level_row_and_unchanged_parent() {
         other => panic!("expected SetTaskParent, got {other:?}"),
     }
 }
+
+/// The go-to-day box opens the Completed view on the typed day, or explains what it accepts.
+#[test]
+fn test_go_to_completed_day_reads_the_typed_day() {
+    let mut dialog = DialogComponent::new();
+    dialog.update(Action::ShowDialog(DialogType::GoToCompletedDay));
+    type_text(&mut dialog, "yesterday");
+    let yesterday = chrono::Local::now().date_naive() - chrono::Duration::days(1);
+    assert!(matches!(press(&mut dialog, KeyCode::Enter), Action::ShowCompletedDay(day) if day == yesterday));
+
+    dialog.update(Action::ShowDialog(DialogType::GoToCompletedDay));
+    type_text(&mut dialog, "someday");
+    assert!(matches!(
+        press(&mut dialog, KeyCode::Enter),
+        Action::ShowDialog(DialogType::Error(message)) if message.contains("someday")
+    ));
+}

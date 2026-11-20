@@ -336,6 +336,19 @@ impl DialogComponent {
                     Action::None
                 }
             }
+            Some(DialogType::GoToCompletedDay) => {
+                let typed = self.input_buffer.trim().to_string();
+                if typed.is_empty() {
+                    return Action::None;
+                }
+                self.clear_dialog();
+                match crate::utils::datetime::parse_day(&typed, chrono::Local::now().date_naive()) {
+                    Some(day) => Action::ShowCompletedDay(day),
+                    None => Action::ShowDialog(DialogType::Error(format!(
+                        "Couldn't read '{typed}' as a day. Try yesterday, 3 days ago, monday, nov 2 or 2026-11-02."
+                    ))),
+                }
+            }
             Some(DialogType::Reschedule { task_uuid, .. }) => {
                 let due = self.input_buffer.trim().to_string();
                 if due.is_empty() {
@@ -1007,6 +1020,15 @@ impl Component for DialogComponent {
                 }
                 DialogType::TaskSearch => {
                     self.render_task_search_dialog(f, rect);
+                }
+                DialogType::GoToCompletedDay => {
+                    task_dialogs::render_go_to_day_dialog(
+                        f,
+                        rect,
+                        &self.input_buffer,
+                        self.cursor_position,
+                        &self.theme,
+                    );
                 }
                 DialogType::Reschedule {
                     content, is_recurring, ..

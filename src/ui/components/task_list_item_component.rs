@@ -58,6 +58,8 @@ pub struct TaskItem {
     pub labels: Vec<crate::entities::label::Model>,
     /// Set for a subtask shown without its parent above it, to say whose subtask it is.
     pub parent_name: Option<String>,
+    /// When the task was completed (RFC 3339), in the Completed view.
+    pub completed_at: Option<String>,
 }
 
 impl TaskItem {
@@ -75,6 +77,7 @@ impl TaskItem {
             project_name,
             labels,
             parent_name: None,
+            completed_at: None,
         }
     }
 
@@ -166,6 +169,19 @@ impl ListItem for TaskItem {
             let progress_text = format!(" ({})", self.child_count);
             let progress_style = Style::default().fg(theme.border_dim);
             line_spans.push(Span::styled(progress_text, progress_style));
+        }
+
+        // Completion time, in the Completed view
+        if let Some(at) = self
+            .completed_at
+            .as_deref()
+            .and_then(|at| chrono::DateTime::parse_from_rfc3339(at).ok())
+        {
+            let local = at.with_timezone(&chrono::Local);
+            line_spans.push(Span::styled(
+                format!(" ✓ {}", local.format("%H:%M")),
+                Style::default().fg(theme.success),
+            ));
         }
 
         // Project tag (resolved at item build time)

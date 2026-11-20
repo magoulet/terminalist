@@ -103,3 +103,45 @@ fn test_format_human_datetime_shows_the_time_with_or_without_fractions() {
     assert!(format_human_datetime("2026-11-20T13:00:00").ends_with("at 13:00"));
     assert!(format_human_datetime("2026-11-20T13:00:00.000000").ends_with("at 13:00"));
 }
+
+#[test]
+fn test_parse_day_relative_words_and_offsets() {
+    let today = NaiveDate::from_ymd_opt(2026, 11, 20).unwrap(); // a Friday
+    let day = |y, m, d| NaiveDate::from_ymd_opt(y, m, d);
+    assert_eq!(parse_day("today", today), day(2026, 11, 20));
+    assert_eq!(parse_day(" Yesterday ", today), day(2026, 11, 19));
+    assert_eq!(parse_day("3 days ago", today), day(2026, 11, 17));
+    assert_eq!(parse_day("1 day ago", today), day(2026, 11, 19));
+    assert_eq!(parse_day("-10", today), day(2026, 11, 10));
+}
+
+#[test]
+fn test_parse_day_weekdays_look_back_to_the_latest_one() {
+    let today = NaiveDate::from_ymd_opt(2026, 11, 20).unwrap(); // a Friday
+    let day = |y, m, d| NaiveDate::from_ymd_opt(y, m, d);
+    assert_eq!(parse_day("monday", today), day(2026, 11, 16));
+    assert_eq!(parse_day("fri", today), day(2026, 11, 20));
+    assert_eq!(parse_day("sat", today), day(2026, 11, 14));
+}
+
+#[test]
+fn test_parse_day_dates_and_month_names() {
+    let today = NaiveDate::from_ymd_opt(2026, 11, 20).unwrap();
+    let day = |y, m, d| NaiveDate::from_ymd_opt(y, m, d);
+    assert_eq!(parse_day("2026-11-02", today), day(2026, 11, 2));
+    assert_eq!(parse_day("nov 2", today), day(2026, 11, 2));
+    assert_eq!(parse_day("2 November", today), day(2026, 11, 2));
+    // A month and day still ahead this year means last year's.
+    assert_eq!(parse_day("dec 24", today), day(2025, 12, 24));
+    assert_eq!(parse_day("ma 3", today), None);
+    assert_eq!(parse_day("whenever", today), None);
+    assert_eq!(parse_day("feb 30", today), None);
+}
+
+#[test]
+fn test_local_day_bounds_span_one_day() {
+    let (since, until) = local_day_bounds_utc(NaiveDate::from_ymd_opt(2026, 11, 19).unwrap());
+    let since = chrono::DateTime::parse_from_rfc3339(&since).unwrap();
+    let until = chrono::DateTime::parse_from_rfc3339(&until).unwrap();
+    assert_eq!((until - since).num_hours(), 24);
+}

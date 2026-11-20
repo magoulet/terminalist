@@ -11,3 +11,4 @@ pub const LABEL: &str = "◉";
 pub const TODAY: &str = "◷";
 pub const TOMORROW: &str = "◶";
 pub const UPCOMING: &str = "◎";
+pub const COMPLETED: &str = "✓";

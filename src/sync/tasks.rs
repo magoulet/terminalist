@@ -7,6 +7,15 @@ use anyhow::Result;
 use sea_orm::{ActiveValue, EntityTrait, IntoActiveModel, TransactionTrait};
 use uuid::Uuid;
 
+/// A task completed on the day the Completed view shows. It is fetched from the backend and
+/// never stored: the cache only holds active tasks.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CompletedTask {
+    pub task: task::Model,
+    /// When it was completed (RFC 3339).
+    pub completed_at: Option<String>,
+}
+
 /// What a Quick Add produced, for the confirmation message.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct QuickAddOutcome {
@@ -126,6 +135,90 @@ impl SyncService {
             }
         }
         Ok(titles)
+    }
+
+    /// Tasks completed on `day` (a local calendar day), most recent first. They come straight
+    /// from the backend. Each gets the UUID of its cached copy when there is one, and project,
+    /// section and parent resolve against the cache and the rest of the day's list. Tasks in a
+    /// project the cache doesn't know are left out.
+    ///
+    /// # Errors
+    /// Returns an error if the backend call or a cache lookup fails
+    pub async fn completed_on(&self, day: chrono::NaiveDate) -> Result<Vec<CompletedTask>> {
+        let (since, until) = datetime::local_day_bounds_utc(day);
+        let mut fetched = self.get_backend().await?.fetch_completed_tasks(&since, &until).await?;
+        fetched.sort_by(|a, b| b.completed_at.cmp(&a.completed_at));
+
+        let storage = self.storage.lock().await;
+        let mut uuids = std::collections::HashMap::new();
+        for backend_task in &fetched {
+            let uuid = TaskRepository::get_by_remote_id(&storage.conn, &self.backend_uuid, &backend_task.remote_id)
+                .await?
+                .map_or_else(Uuid::new_v4, |cached| cached.uuid);
+            uuids.insert(backend_task.remote_id.clone(), uuid);
+        }
+
+        let mut completed = Vec::with_capacity(fetched.len());
+        for backend_task in fetched {
+            let Ok(project_uuid) = Self::lookup_project_uuid(
+                &storage.conn,
+                &self.backend_uuid,
+                &backend_task.project_remote_id,
+                "completed tasks",
+            )
+            .await
+            else {
+                continue;
+            };
+            let section_uuid = Self::lookup_section_uuid(
+                &storage.conn,
+                &self.backend_uuid,
+                backend_task.section_remote_id.as_ref(),
+            )
+            .await?;
+            let parent_uuid = match &backend_task.parent_remote_id {
+                Some(remote) => match uuids.get(remote) {
+                    Some(uuid) => Some(*uuid),
+                    None => TaskRepository::get_by_remote_id(&storage.conn, &self.backend_uuid, remote)
+                        .await?
+                        .map(|parent| parent.uuid),
+                },
+                None => None,
+            };
+            completed.push(CompletedTask {
+                task: task::Model {
+                    uuid: uuids[&backend_task.remote_id],
+                    backend_uuid: self.backend_uuid,
+                    remote_id: backend_task.remote_id,
+                    content: backend_task.content,
+                    description: backend_task.description,
+                    project_uuid,
+                    section_uuid,
+                    parent_uuid,
+                    priority: backend_task.priority,
+                    order_index: backend_task.order_index,
+                    due_date: backend_task.due_date,
+                    due_datetime: backend_task.due_datetime,
+                    is_recurring: backend_task.is_recurring,
+                    deadline: backend_task.deadline,
+                    duration: backend_task.duration,
+                    is_completed: true,
+                    is_deleted: false,
+                },
+                completed_at: backend_task.completed_at,
+            });
+        }
+        Ok(completed)
+    }
+
+    /// Reopens a completed task that may not be in the cache, such as one from the Completed
+    /// view. A sync afterwards brings it back as an active task.
+    ///
+    /// # Errors
+    /// Returns an error if the backend call fails
+    pub async fn reopen_remote_task(&self, remote_id: &str) -> Result<()> {
+        self.get_backend().await?.reopen_task(remote_id).await?;
+        Ok(())
     }
 
     /// Get a single task by ID from local storage (fast)

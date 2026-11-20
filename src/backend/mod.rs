@@ -60,6 +60,8 @@ pub struct BackendTask {
     pub duration: Option<String>,
     pub is_completed: bool,
     pub labels: Vec<String>,
+    /// When the task was completed (RFC 3339), for completed tasks only.
+    pub completed_at: Option<String>,
 }
 
 /// Backend-agnostic label representation.
@@ -161,6 +163,9 @@ pub trait Backend: Send + Sync {
     async fn fetch_tasks(&self) -> Result<Vec<BackendTask>, BackendError>;
     async fn fetch_labels(&self) -> Result<Vec<BackendLabel>, BackendError>;
     async fn fetch_sections(&self) -> Result<Vec<BackendSection>, BackendError>;
+    /// Tasks completed between `since` (inclusive) and `until` (exclusive), both RFC 3339
+    /// times in UTC.
+    async fn fetch_completed_tasks(&self, since: &str, until: &str) -> Result<Vec<BackendTask>, BackendError>;
 
     // CRUD operations for projects
     async fn create_project(&self, args: CreateProjectArgs) -> Result<BackendProject, BackendError>;

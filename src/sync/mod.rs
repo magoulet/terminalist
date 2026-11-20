@@ -17,7 +17,7 @@ pub(crate) mod sections;
 pub mod storage;
 pub(crate) mod tasks;
 
-pub use tasks::QuickAddOutcome;
+pub use tasks::{CompletedTask, QuickAddOutcome};
 
 use anyhow::Result;
 use log::{error, info};
